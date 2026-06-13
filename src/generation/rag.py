@@ -245,7 +245,6 @@ Please provide a well-structured summary with proper citations:"""
 
 if __name__ == "__main__":
     import os
-    from src.document_processing.doc_processor import DocumentProcessor
     from src.embeddings.embedding_generator import EmbeddingGenerator
     from src.vector_database.milvus_vector_db import MilvusVectorDB
     
@@ -274,7 +273,7 @@ if __name__ == "__main__":
         print(result.get_citation_summary())
         
         summary_result = rag_generator.generate_summary(summary_length="medium")
-        print(f"\nDocument Summary:")
+        print("\nDocument Summary:")
         print(summary_result.response)
         
     except Exception as e:

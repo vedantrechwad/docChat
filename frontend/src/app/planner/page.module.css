@@ -1,0 +1,176 @@
+.plannerContainer {
+  max-width: 1000px;
+  margin: 0 auto;
+  animation: fadeIn 0.4s ease;
+}
+
+.header {
+  margin-bottom: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--text-primary);
+}
+
+.controls {
+  display: flex;
+  gap: 1rem;
+}
+
+.scheduleGrid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 2rem;
+}
+
+/* Left Sidebar - Setup */
+.setupPanel {
+  background: var(--bg-panel);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  height: fit-content;
+}
+
+.setupTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.formGroup {
+  margin-bottom: 1.25rem;
+}
+
+.label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: var(--text-secondary);
+}
+
+.input, .select {
+  width: 100%;
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.input:focus, .select:focus {
+  border-color: var(--accent-primary);
+}
+
+.generateBtn {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+/* Right Content - Timeline */
+.timelinePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.dayCard {
+  background: var(--bg-panel);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.dayHeader {
+  padding: 1rem 1.5rem;
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dayTitle {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dayMeta {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.taskList {
+  display: flex;
+  flex-direction: column;
+}
+
+.taskItem {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  transition: background 0.2s ease;
+}
+
+.taskItem:last-child {
+  border-bottom: none;
+}
+
+.taskItem:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.checkbox {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 2px solid var(--text-muted);
+  cursor: pointer;
+  margin-top: 2px;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.checkbox:hover {
+  border-color: var(--accent-primary);
+}
+
+.taskContent {
+  flex: 1;
+}
+
+.taskTitle {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.taskDesc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.taskTime {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}

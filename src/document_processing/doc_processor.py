@@ -1,4 +1,3 @@
-import os
 import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -6,7 +5,7 @@ from pathlib import Path
 import hashlib
 from datetime import datetime
 
-import pymupdf
+import pymupdf # type: ignore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,7 +21,7 @@ class DocumentChunk:
     chunk_index: int = 0
     start_char: Optional[int] = None
     end_char: Optional[int] = None
-    metadata: Dict[str, Any] = None
+    metadata: Optional[Dict[str, Any]] = None
     chunk_id: str = ""
     
     def __post_init__(self):
@@ -48,7 +47,8 @@ class DocumentChunk:
         if self.start_char or self.end_char:
             citation['char_range'] = f"{self.start_char}-{self.end_char}"
         
-        citation.update(self.metadata)
+        if self.metadata:
+            citation.update(self.metadata)
         return citation
 
 
@@ -59,23 +59,25 @@ class DocumentProcessor:
         self.supported_formats = {'.pdf', '.txt', '.md'} # add other formats if need be
     
     def process_document(self, file_path: str) -> List[DocumentChunk]:
-        file_path = Path(file_path)
+        path_obj = Path(file_path)
         
-        if not file_path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
-        if file_path.suffix.lower() not in self.supported_formats:
-            raise ValueError(f"Unsupported file format: {file_path.suffix}")
+        if not path_obj.exists():
+            raise FileNotFoundError(f"File not found: {path_obj}")
+        if path_obj.suffix.lower() not in self.supported_formats:
+            raise ValueError(f"Unsupported file format: {path_obj.suffix}")
         
-        logger.info(f"Processing document: {file_path.name}")
+        logger.info(f"Processing document: {path_obj.name}")
         
         try:
-            if file_path.suffix.lower() == '.pdf':
-                return self._process_pdf(file_path)
-            elif file_path.suffix.lower() in {'.txt', '.md'}:
-                return self._process_text_file(file_path)
+            if path_obj.suffix.lower() == '.pdf':
+                return self._process_pdf(path_obj)
+            elif path_obj.suffix.lower() in {'.txt', '.md'}:
+                return self._process_text_file(path_obj)
+            else:
+                return []
                 
         except Exception as e:
-            logger.error(f"Error processing {file_path.name}: {str(e)}")
+            logger.error(f"Error processing {path_obj.name}: {str(e)}")
             raise
     
     def _process_pdf(self, file_path: Path) -> List[DocumentChunk]:
@@ -149,7 +151,7 @@ class DocumentProcessor:
         source_file: str, 
         source_type: str,
         page_number: Optional[int] = None,
-        additional_metadata: Dict[str, Any] = None
+        additional_metadata: Optional[Dict[str, Any]] = None
     ) -> List[DocumentChunk]:
         
         if not text.strip():

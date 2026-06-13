@@ -57,7 +57,7 @@ class NotebookMemoryLayer:
             try:
                 self.zep_client.user.get(self.user_id)
                 logger.info(f"Using existing user: {self.user_id}")
-            except:
+            except Exception:
                 self.zep_client.user.add(user_id=self.user_id)
                 logger.info(f"Created new user: {self.user_id}")
             
@@ -65,7 +65,7 @@ class NotebookMemoryLayer:
                 try:
                     self.zep_client.thread.delete(self.session_id)
                     logger.info(f"Deleted previous session: {self.session_id}")
-                except:
+                except Exception:
                     pass
                 
                 self.zep_client.thread.create(thread_id=self.session_id, user_id=self.user_id)
@@ -75,7 +75,7 @@ class NotebookMemoryLayer:
                 try:
                     self.zep_client.thread.get(self.session_id)
                     logger.info(f"Using existing session: {self.session_id}")
-                except:
+                except Exception:
                     self.zep_client.thread.create(thread_id=self.session_id, user_id=self.user_id)
                     logger.info(f"Created session: {self.session_id}")
                     
@@ -284,7 +284,7 @@ class NotebookMemoryLayer:
 
 
 if __name__ == "__main__":
-    from src.generation.rag import RAGGenerator, RAGResult
+    from src.generation.rag import RAGResult
     
     memory = NotebookMemoryLayer(
         user_id="test_user",

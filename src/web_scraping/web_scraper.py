@@ -2,8 +2,7 @@ import logging
 import os
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-from pathlib import Path
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 import time
 from datetime import datetime
 
@@ -214,7 +213,7 @@ class WebScraper:
         try:
             result = urlparse(url)
             return all([result.scheme, result.netloc])
-        except:
+        except Exception:
             return False
 
 
@@ -232,7 +231,7 @@ if __name__ == "__main__":
         print(f"URL Preview: {preview}")
         
         chunks = scraper.scrape_url(test_url)
-        print(f"\nScraping Results:")
+        print("\nScraping Results:")
         print(f"Generated {len(chunks)} chunks")
         
         for i, chunk in enumerate(chunks[:3]):

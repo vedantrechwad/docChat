@@ -8,7 +8,26 @@ import uuid
 from pathlib import Path
 from dotenv import load_dotenv
 
+
+from src.document_processing.doc_processor import DocumentProcessor
+from src.embeddings.embedding_generator import EmbeddingGenerator
+from src.vector_database.milvus_vector_db import MilvusVectorDB
+from src.generation.rag import RAGGenerator
+from src.memory.memory_layer import NotebookMemoryLayer
+from src.audio_processing.audio_transcriber import AudioTranscriber
+from src.audio_processing.youtube_transcriber import YouTubeTranscriber
+from src.web_scraping.web_scraper import WebScraper
+from src.audio.audio_study_guide import AudioStudyGuideGenerator
+from src.audio.text_to_speech import PodcastTTSGenerator
+
 load_dotenv()
+
+st.set_page_config(
+    page_title="NotebookLM",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -92,23 +111,6 @@ def create_interactive_citations(response_text: str, sources_used: List[Dict[str
     
     return interactive_text
 
-from src.document_processing.doc_processor import DocumentProcessor
-from src.embeddings.embedding_generator import EmbeddingGenerator
-from src.vector_database.milvus_vector_db import MilvusVectorDB
-from src.generation.rag import RAGGenerator
-from src.memory.memory_layer import NotebookMemoryLayer
-from src.audio_processing.audio_transcriber import AudioTranscriber
-from src.audio_processing.youtube_transcriber import YouTubeTranscriber
-from src.web_scraping.web_scraper import WebScraper
-from src.podcast.script_generator import PodcastScriptGenerator
-from src.podcast.text_to_speech import PodcastTTSGenerator
-
-st.set_page_config(
-    page_title="NotebookLM",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 st.markdown("""
 <style>
@@ -346,7 +348,7 @@ def initialize_pipeline():
             audio_transcriber = AudioTranscriber(assemblyai_key) if assemblyai_key else None
             youtube_transcriber = YouTubeTranscriber(assemblyai_key) if assemblyai_key else None
             web_scraper = WebScraper(firecrawl_key) if firecrawl_key else None
-            podcast_script_generator = PodcastScriptGenerator(openai_key) if openai_key else None
+            audio_study_guide_generator = AudioStudyGuideGenerator(llm_router) if llm_router else None
             
             try:
                 podcast_tts_generator = PodcastTTSGenerator() if openai_key else None
@@ -375,7 +377,7 @@ def initialize_pipeline():
                 'audio_transcriber': audio_transcriber,
                 'youtube_transcriber': youtube_transcriber,
                 'web_scraper': web_scraper,
-                'podcast_script_generator': podcast_script_generator,
+                'audio_study_guide_generator': audio_study_guide_generator,
                 'podcast_tts_generator': podcast_tts_generator,
                 'memory': memory
             }
@@ -746,9 +748,9 @@ def render_chat_interface():
                 except Exception as e:
                     st.error(f"Error generating response: {str(e)}")
 
-def generate_podcast(selected_source: str, podcast_style: str, podcast_length: str):
-    if not st.session_state.pipeline or not st.session_state.pipeline['podcast_script_generator']:
-        st.error("Podcast generation not available. Please check your OpenAI API key.")
+def generate_audio_study_guide(selected_source: str, guide_style: str, guide_length: str):
+    if not st.session_state.pipeline or not st.session_state.pipeline['audio_study_guide_generator']:
+        st.error("Audio generation not available. Please check your configuration.")
         return
     
     pipeline = st.session_state.pipeline
@@ -784,37 +786,20 @@ def generate_podcast(selected_source: str, podcast_style: str, podcast_length: s
                 st.error(f"Error retrieving content from {selected_source}: {e}")
                 return
         
-        with st.spinner("✍️ Generating podcast script..."):
-            script_generator = pipeline['podcast_script_generator']
+        with st.spinner("✍️ Generating study guide script..."):
+            script_generator = pipeline['audio_study_guide_generator']
             
-            if source_info['type'] == 'Website':
-                # For websites, use the specialized website method
-                from dataclasses import dataclass
-                
-                @dataclass
-                class ChunkLike:
-                    content: str
-                
-                chunks = [ChunkLike(content=result['content']) for result in search_results]
-                
-                podcast_script = script_generator.generate_script_from_website(
-                    website_chunks=chunks,
-                    source_url=selected_source,
-                    podcast_style=podcast_style.lower(),
-                    target_duration=podcast_length
-                )
-            else:
-                # For documents, audio, text, etc., use the text method
+                # Fallback to general text generation for both Website and Text since AudioStudyGuideGenerator handles text.
                 combined_content = "\n\n".join([result['content'] for result in search_results])
                 
-                podcast_script = script_generator.generate_script_from_text(
+                podcast_script = script_generator.generate_from_text(
                     text_content=combined_content,
                     source_name=selected_source,
-                    podcast_style=podcast_style.lower(),
-                    target_duration=podcast_length
+                    guide_type=guide_style.lower(),
+                    target_duration=guide_length
                 )
             
-            st.success(f"✅ Generated podcast script with {podcast_script.total_lines} dialogue segments!")
+            st.success(f"✅ Generated audio script with {podcast_script.total_lines} dialogue segments!")
             
             # Store script in session state for audio generation
             st.session_state.current_podcast_script = podcast_script

@@ -1,9 +1,8 @@
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 import json
-from pathlib import Path
 
-from pymilvus import MilvusClient, DataType, connections, utility
+from pymilvus import MilvusClient, DataType
 from src.embeddings.embedding_generator import EmbeddedChunk
 
 logging.basicConfig(level=logging.INFO)
@@ -190,7 +189,7 @@ class MilvusVectorDB:
                 
                 data.append(chunk_data)
             
-            result = self.client.insert(
+            self.client.insert(
                 collection_name=self.collection_name,
                 data=data
             )
@@ -308,7 +307,7 @@ class MilvusVectorDB:
                 if isinstance(metadata, str):
                     try:
                         metadata = json.loads(metadata)
-                    except:
+                    except Exception:
                         metadata = {}
                 
                 return {

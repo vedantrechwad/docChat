@@ -1,0 +1,74 @@
+.canvasContainer {
+  display: flex;
+  height: calc(100vh - 70px - 4rem); /* Full height minus header and padding */
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: #f8f9fa; /* Tldraw light background */
+  position: relative;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-color);
+  animation: fadeIn 0.4s ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  .canvasContainer {
+    background: #121212; /* Tldraw dark background */
+  }
+}
+
+.aiFloatingMenu {
+  position: absolute;
+  bottom: 6rem; /* Increased from 2rem to avoid overlapping Tldraw toolbar */
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-panel);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  padding: 0.75rem;
+  border-radius: var(--radius-full);
+  display: flex;
+  gap: 0.5rem;
+  box-shadow: var(--shadow-lg);
+  z-index: 1000; /* Above canvas */
+}
+
+.aiButton {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-full);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.aiButton:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.primaryAiButton {
+  background: var(--gradient-primary);
+  color: white;
+}
+
+.primaryAiButton:hover {
+  background: var(--gradient-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow);
+}
+
+.exportMenu {
+  position: absolute;
+  top: 4rem; /* Moved down to avoid tldraw's native top-right menu */
+  right: 1rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column; /* Stack vertically to save horizontal space */
+  gap: 0.5rem;
+}

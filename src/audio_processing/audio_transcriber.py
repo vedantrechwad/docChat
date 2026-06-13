@@ -1,10 +1,8 @@
 import logging
 import os
-import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass
 from pathlib import Path
-import json
 
 import assemblyai as aai
 from src.document_processing.doc_processor import DocumentChunk
@@ -322,7 +320,7 @@ if __name__ == "__main__":
         # Full transcription
         chunks = transcriber.transcribe_audio(audio_file)
         
-        print(f"\nTranscription Results:")
+        print("\nTranscription Results:")
         print(f"Generated {len(chunks)} chunks")
         
         for i, chunk in enumerate(chunks[:3]):
