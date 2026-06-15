@@ -3,800 +3,562 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DocChat — Chat With Your Documents</title>
-    <meta name="description" content="Upload PDFs, websites, or YouTube videos and ask questions with cited answers.">
+    <title>DocChat — Smart Document Workspace</title>
+    <meta name="description" content="Multi-notebook document Q&A with notes, rich editing, and AI writing assist.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
         :root {
-            --bg-primary: #0a0a0f;
-            --bg-secondary: #12121a;
-            --bg-card: #1a1a26;
-            --bg-card-hover: #22222f;
-            --bg-input: #16161f;
-            --border: #2a2a3a;
-            --border-hover: #3a3a4f;
-            --text-primary: #e8e8f0;
-            --text-secondary: #a0a0b8;
-            --text-muted: #6a6a80;
-            --accent: #7c5cfc;
-            --accent-hover: #6a4ae8;
-            --accent-glow: rgba(124, 92, 252, 0.15);
-            --accent-green: #34d399;
-            --accent-blue: #60a5fa;
-            --accent-orange: #fb923c;
-            --accent-red: #f87171;
-            --radius: 12px;
-            --radius-sm: 8px;
-            --radius-lg: 16px;
-            --shadow: 0 4px 24px rgba(0,0,0,0.3);
+            --bg-primary: #0a0a0f; --bg-secondary: #12121a; --bg-card: #1a1a26;
+            --bg-card-hover: #22222f; --bg-input: #16161f;
+            --border: #2a2a3a; --border-hover: #3a3a4f;
+            --text-primary: #e8e8f0; --text-secondary: #a0a0b8; --text-muted: #6a6a80;
+            --accent: #7c5cfc; --accent-hover: #6a4ae8; --accent-glow: rgba(124, 92, 252, 0.15);
+            --accent-green: #34d399; --accent-blue: #60a5fa; --accent-orange: #fb923c; --accent-red: #f87171;
+            --radius: 12px; --radius-sm: 8px; --radius-lg: 16px; --shadow: 0 4px 24px rgba(0,0,0,0.3);
+            --sidebar-w: 260px;
         }
+        html, body { height: 100%; font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); overflow: hidden; }
+        button { font-family: inherit; cursor: pointer; }
 
-        html, body {
-            height: 100%;
-            font-family: 'Inter', -apple-system, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            overflow: hidden;
-        }
+        /* ─── Layout ───────────────────────── */
+        .app { display: flex; height: 100vh; }
+        .sidebar { width: var(--sidebar-w); min-width: var(--sidebar-w); background: var(--bg-secondary); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-primary); }
 
-        /* ─── Layout ─────────────────────────────────────────── */
-        .app {
-            display: flex;
-            height: 100vh;
-            gap: 1px;
-            background: var(--border);
-        }
+        /* ─── Sidebar ──────────────────────── */
+        .sidebar-header { padding: 1.25rem 1rem; border-bottom: 1px solid var(--border); }
+        .logo { font-size: 1.125rem; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent-blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .sidebar-section { padding: 0.75rem 0.75rem 0.25rem; }
+        .sidebar-section-title { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 0.5rem; padding: 0 0.5rem; display: flex; align-items: center; justify-content: space-between; }
+        .sidebar-list { flex: 1; overflow-y: auto; padding: 0 0.75rem; }
+        .sidebar-list::-webkit-scrollbar { width: 3px; }
+        .sidebar-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-        .panel {
-            background: var(--bg-secondary);
-            display: flex;
-            flex-direction: column;
-        }
+        .nb-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s; font-size: 0.8125rem; position: relative; color: var(--text-secondary); }
+        .nb-item:hover { background: var(--bg-card); color: var(--text-primary); }
+        .nb-item.active { background: var(--accent-glow); color: var(--accent); border: 1px solid rgba(124,92,252,0.2); }
+        .nb-item .nb-icon { font-size: 0.875rem; }
+        .nb-item .nb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .nb-item .nb-badge { font-size: 0.625rem; background: var(--bg-card); padding: 1px 5px; border-radius: 6px; color: var(--text-muted); }
+        .nb-item .nb-delete { display: none; background: none; border: none; color: var(--accent-red); font-size: 0.75rem; padding: 2px; }
+        .nb-item:hover .nb-delete { display: block; }
+        .nb-item:hover .nb-badge { display: none; }
 
-        .panel-sources {
-            width: 300px;
-            min-width: 260px;
-        }
+        /* Source items in sidebar */
+        .src-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.75rem; color: var(--text-muted); }
+        .src-item:hover { background: var(--bg-card); }
+        .src-icon { width: 22px; height: 22px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 0.6875rem; flex-shrink: 0; }
+        .src-icon-doc { background: rgba(96,165,250,0.12); }
+        .src-icon-web { background: rgba(52,211,153,0.12); }
+        .src-icon-yt { background: rgba(248,113,113,0.12); }
+        .src-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .src-del { display: none; background: none; border: none; color: var(--accent-red); font-size: 0.625rem; cursor: pointer; }
+        .src-item:hover .src-del { display: block; }
 
-        .panel-chat {
-            flex: 1;
-            min-width: 0;
-        }
+        .sidebar-add { display: flex; align-items: center; gap: 0.375rem; padding: 0.375rem 0.5rem; border-radius: 6px; border: 1px dashed var(--border); background: none; color: var(--text-muted); font-size: 0.75rem; width: 100%; transition: all 0.15s; margin-top: 0.25rem; }
+        .sidebar-add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
 
-        .panel-header {
-            padding: 1.25rem 1.5rem;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-shrink: 0;
-        }
+        /* Model selector */
+        .model-section { padding: 0.75rem; border-top: 1px solid var(--border); margin-top: auto; }
+        .model-select { width: 100%; padding: 0.4rem 0.5rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 0.75rem; font-family: inherit; outline: none; }
+        .model-select:focus { border-color: var(--accent); }
+        .model-label { font-size: 0.625rem; color: var(--text-muted); margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+        .model-status { font-size: 0.625rem; margin-top: 0.25rem; }
+        .model-status.online { color: var(--accent-green); }
+        .model-status.offline { color: var(--accent-red); }
 
-        .panel-header h2 {
-            font-size: 1rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
+        /* ─── Main Area ────────────────────── */
+        .main-header { display: flex; align-items: center; border-bottom: 1px solid var(--border); background: var(--bg-secondary); flex-shrink: 0; }
+        .tab { padding: 0.875rem 1.25rem; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; transition: all 0.2s; }
+        .tab:hover { color: var(--text-secondary); }
+        .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .tab-badge { font-size: 0.5625rem; background: var(--accent-glow); color: var(--accent); padding: 1px 5px; border-radius: 6px; margin-left: 0.375rem; }
+        .main-content { flex: 1; overflow: hidden; position: relative; }
+        .tab-panel { display: none; height: 100%; flex-direction: column; }
+        .tab-panel.active { display: flex; }
 
-        .logo {
-            font-size: 1.125rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, var(--accent), var(--accent-blue));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        /* ─── Source Buttons ──────────────────────────────────── */
-        .source-actions {
-            padding: 1rem 1rem 0.5rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-            flex-shrink: 0;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            padding: 0.6rem 1rem;
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border);
-            background: var(--bg-card);
-            color: var(--text-primary);
-            font-size: 0.8125rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-family: inherit;
-        }
-
-        .btn:hover {
-            background: var(--bg-card-hover);
-            border-color: var(--border-hover);
-        }
-
-        .btn-primary {
-            background: var(--accent);
-            border-color: var(--accent);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: var(--accent-hover);
-        }
-
-        .btn-sm {
-            padding: 0.4rem 0.75rem;
-            font-size: 0.75rem;
-        }
-
-        .btn-icon {
-            width: 32px;
-            height: 32px;
-            padding: 0;
-            border-radius: 8px;
-        }
-
-        /* ─── Source List ─────────────────────────────────────── */
-        .source-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 0.5rem 1rem 1rem;
-        }
-
-        .source-list::-webkit-scrollbar { width: 4px; }
-        .source-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
-        .source-item {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 0.75rem;
-            border-radius: var(--radius-sm);
-            cursor: default;
-            transition: background 0.15s;
-            position: relative;
-        }
-
-        .source-item:hover {
-            background: var(--bg-card);
-        }
-
-        .source-icon {
-            width: 34px;
-            height: 34px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1rem;
-            flex-shrink: 0;
-        }
-
-        .source-icon-doc { background: rgba(96, 165, 250, 0.12); color: var(--accent-blue); }
-        .source-icon-web { background: rgba(52, 211, 153, 0.12); color: var(--accent-green); }
-        .source-icon-yt { background: rgba(248, 113, 113, 0.12); color: var(--accent-red); }
-
-        .source-info { flex: 1; min-width: 0; }
-
-        .source-name {
-            font-size: 0.8125rem;
-            font-weight: 500;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .source-meta {
-            font-size: 0.6875rem;
-            color: var(--text-muted);
-            margin-top: 2px;
-        }
-
-        .source-delete {
-            opacity: 0;
-            transition: opacity 0.15s;
-            background: none;
-            border: none;
-            color: var(--accent-red);
-            cursor: pointer;
-            font-size: 0.875rem;
-            padding: 4px;
-        }
-
-        .source-item:hover .source-delete { opacity: 0.7; }
-        .source-delete:hover { opacity: 1 !important; }
-
-        .source-empty {
-            padding: 2rem 1rem;
-            text-align: center;
-            color: var(--text-muted);
-            font-size: 0.8125rem;
-            line-height: 1.6;
-        }
-
-        .source-count {
-            font-size: 0.6875rem;
-            color: var(--text-muted);
-            background: var(--bg-card);
-            padding: 2px 8px;
-            border-radius: 10px;
-        }
-
-        /* ─── Chat ───────────────────────────────────────────── */
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 2rem;
-            display: flex;
-            flex-direction: column;
-            gap: 1.5rem;
-        }
-
+        /* ─── Chat Tab ─────────────────────── */
+        .chat-messages { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; display: flex; flex-direction: column; gap: 1.25rem; }
         .chat-messages::-webkit-scrollbar { width: 4px; }
         .chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        .chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem; color: var(--text-muted); }
+        .chat-empty-icon { font-size: 2.5rem; opacity: 0.3; }
+        .chat-empty h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); }
+        .chat-empty p { font-size: 0.8125rem; max-width: 340px; text-align: center; line-height: 1.5; }
 
-        .chat-empty {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 1rem;
-            color: var(--text-muted);
-        }
-
-        .chat-empty-icon {
-            font-size: 3rem;
-            opacity: 0.3;
-        }
-
-        .chat-empty h3 {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: var(--text-secondary);
-        }
-
-        .chat-empty p {
-            font-size: 0.875rem;
-            max-width: 360px;
-            text-align: center;
-            line-height: 1.5;
-        }
-
-        .msg {
-            max-width: 80%;
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .msg-user {
-            align-self: flex-end;
-        }
-
-        .msg-assistant {
-            align-self: flex-start;
-        }
-
-        .msg-bubble {
-            padding: 1rem 1.25rem;
-            border-radius: var(--radius-lg);
-            line-height: 1.65;
-            font-size: 0.875rem;
-        }
-
-        .msg-user .msg-bubble {
-            background: var(--accent);
-            color: white;
-            border-bottom-right-radius: 4px;
-        }
-
-        .msg-assistant .msg-bubble {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-bottom-left-radius: 4px;
-        }
-
-        .msg-bubble p { margin-bottom: 0.75rem; }
-        .msg-bubble p:last-child { margin-bottom: 0; }
-        .msg-bubble ul, .msg-bubble ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
-        .msg-bubble li { margin-bottom: 0.25rem; }
+        .msg { max-width: 80%; animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .msg-user { align-self: flex-end; }
+        .msg-assistant { align-self: flex-start; }
+        .msg-bubble { padding: 0.875rem 1.125rem; border-radius: var(--radius-lg); line-height: 1.6; font-size: 0.8125rem; }
+        .msg-user .msg-bubble { background: var(--accent); color: white; border-bottom-right-radius: 4px; }
+        .msg-assistant .msg-bubble { background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+        .msg-bubble p { margin-bottom: 0.5rem; } .msg-bubble p:last-child { margin-bottom: 0; }
+        .msg-bubble ul, .msg-bubble ol { padding-left: 1.25rem; margin-bottom: 0.5rem; }
+        .msg-bubble li { margin-bottom: 0.125rem; }
         .msg-bubble strong { font-weight: 600; }
-        .msg-bubble code {
-            background: rgba(255,255,255,0.08);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.8125rem;
-        }
+        .msg-bubble code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px; font-size: 0.75rem; }
+        .citation-ref { display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: white; font-size: 0.5625rem; font-weight: 700; width: 16px; height: 16px; border-radius: 3px; vertical-align: middle; margin: 0 1px; }
 
-        /* Citation badges inline */
-        .citation-ref {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            background: var(--accent);
-            color: white;
-            font-size: 0.625rem;
-            font-weight: 700;
-            width: 18px;
-            height: 18px;
-            border-radius: 4px;
-            vertical-align: middle;
-            margin: 0 1px;
-            cursor: help;
-            position: relative;
-        }
+        /* Message actions bar */
+        .msg-actions { display: flex; gap: 0.25rem; margin-top: 0.5rem; opacity: 0; transition: opacity 0.15s; }
+        .msg:hover .msg-actions { opacity: 1; }
+        .msg-action-btn { background: var(--bg-card-hover); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.6875rem; padding: 3px 8px; border-radius: 5px; cursor: pointer; display: flex; align-items: center; gap: 3px; transition: all 0.15s; }
+        .msg-action-btn:hover { color: var(--accent); border-color: var(--accent); }
+        .msg-action-btn.speaking { color: var(--accent-green); border-color: var(--accent-green); }
 
-        .citation-ref:hover .citation-tip {
-            display: block;
-        }
+        .msg-sources { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+        .msg-source-tag { font-size: 0.625rem; padding: 2px 6px; border-radius: 5px; background: rgba(124,92,252,0.1); color: var(--accent); border: 1px solid rgba(124,92,252,0.15); }
 
-        .citation-tip {
-            display: none;
-            position: absolute;
-            bottom: 130%;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            padding: 0.5rem 0.75rem;
-            border-radius: var(--radius-sm);
-            font-size: 0.6875rem;
-            font-weight: 400;
-            color: var(--text-secondary);
-            white-space: nowrap;
-            max-width: 300px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            box-shadow: var(--shadow);
-            z-index: 100;
-        }
-
-        .msg-sources {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.375rem;
-            margin-top: 0.75rem;
-            padding-top: 0.75rem;
-            border-top: 1px solid var(--border);
-        }
-
-        .msg-source-tag {
-            font-size: 0.6875rem;
-            padding: 3px 8px;
-            border-radius: 6px;
-            background: rgba(124, 92, 252, 0.1);
-            color: var(--accent);
-            border: 1px solid rgba(124, 92, 252, 0.2);
-        }
-
-        .msg-loading {
-            align-self: flex-start;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            color: var(--text-muted);
-            font-size: 0.875rem;
-            padding: 1rem;
-        }
-
-        .loading-dots span {
-            display: inline-block;
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--accent);
-            animation: bounce 1.4s infinite ease-in-out both;
-        }
-
+        .msg-loading { align-self: flex-start; display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.8125rem; padding: 0.75rem; }
+        .loading-dots span { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: bounce 1.4s infinite ease-in-out both; }
         .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
         .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 
-        @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0); }
-            40% { transform: scale(1); }
-        }
-
-        /* ─── Chat Input ─────────────────────────────────────── */
-        .chat-input-area {
-            padding: 1rem 2rem 1.5rem;
-            flex-shrink: 0;
-        }
-
-        .chat-input-wrapper {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: 2rem;
-            padding: 0.5rem 0.5rem 0.5rem 1.5rem;
-            transition: border-color 0.2s;
-        }
-
-        .chat-input-wrapper:focus-within {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px var(--accent-glow);
-        }
-
-        .chat-input {
-            flex: 1;
-            background: none;
-            border: none;
-            color: var(--text-primary);
-            font-size: 0.875rem;
-            font-family: inherit;
-            outline: none;
-        }
-
-        .chat-input::placeholder {
-            color: var(--text-muted);
-        }
-
-        .send-btn {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: var(--accent);
-            border: none;
-            color: white;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s, transform 0.15s;
-            flex-shrink: 0;
-        }
-
+        .chat-input-area { padding: 0.75rem 2rem 1.25rem; flex-shrink: 0; }
+        .chat-input-wrapper { display: flex; align-items: center; gap: 0.5rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 1.5rem; padding: 0.375rem 0.375rem 0.375rem 1.25rem; transition: border-color 0.2s; }
+        .chat-input-wrapper:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+        .chat-input { flex: 1; background: none; border: none; color: var(--text-primary); font-size: 0.8125rem; font-family: inherit; outline: none; }
+        .chat-input::placeholder { color: var(--text-muted); }
+        .send-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); border: none; color: white; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; }
         .send-btn:hover { background: var(--accent-hover); transform: scale(1.05); }
-        .send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+        .send-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
 
-        /* ─── Modals ─────────────────────────────────────────── */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.6);
-            backdrop-filter: blur(4px);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
+        /* ─── Notes Tab ────────────────────── */
+        .notes-toolbar { display: flex; gap: 0.5rem; padding: 1rem 2rem; border-bottom: 1px solid var(--border); background: var(--bg-secondary); flex-shrink: 0; }
+        .notes-list { flex: 1; overflow-y: auto; padding: 1rem 2rem; display: flex; flex-direction: column; gap: 0.75rem; }
+        .note-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; cursor: pointer; transition: all 0.15s; }
+        .note-card:hover { border-color: var(--border-hover); background: var(--bg-card-hover); }
+        .note-card-title { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+        .note-card-preview { font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .note-card-meta { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.5rem; display: flex; justify-content: space-between; }
 
-        .modal-overlay.active {
-            display: flex;
-        }
+        /* Note editor (inline) */
+        .note-editor { display: none; flex: 1; flex-direction: column; }
+        .note-editor.active { display: flex; }
+        .note-editor-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 2rem; border-bottom: 1px solid var(--border); background: var(--bg-secondary); }
+        .note-title-input { flex: 1; background: none; border: none; color: var(--text-primary); font-size: 1rem; font-weight: 600; font-family: inherit; outline: none; }
+        .note-content-area { flex: 1; padding: 1.5rem 2rem; overflow-y: auto; }
+        .note-textarea { width: 100%; height: 100%; background: none; border: none; color: var(--text-primary); font-size: 0.875rem; font-family: inherit; line-height: 1.7; outline: none; resize: none; }
 
-        .modal {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-lg);
-            padding: 2rem;
-            width: 90%;
-            max-width: 480px;
-            box-shadow: var(--shadow);
-            animation: fadeIn 0.2s ease;
-        }
+        /* ─── Editor Tab ───────────────────── */
+        .editor-area { flex: 1; display: flex; flex-direction: column; }
+        .editor-toolbar-custom { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+        .editor-container { flex: 1; overflow: hidden; }
+        .editor-container .ql-toolbar { background: var(--bg-card); border-color: var(--border) !important; }
+        .editor-container .ql-toolbar .ql-stroke { stroke: var(--text-secondary) !important; }
+        .editor-container .ql-toolbar .ql-fill { fill: var(--text-secondary) !important; }
+        .editor-container .ql-toolbar .ql-picker-label { color: var(--text-secondary) !important; }
+        .editor-container .ql-toolbar button:hover .ql-stroke { stroke: var(--accent) !important; }
+        .editor-container .ql-toolbar button:hover .ql-fill { fill: var(--accent) !important; }
+        .editor-container .ql-toolbar button.ql-active .ql-stroke { stroke: var(--accent) !important; }
+        .editor-container .ql-toolbar button.ql-active .ql-fill { fill: var(--accent) !important; }
+        .editor-container .ql-container { border-color: var(--border) !important; background: var(--bg-primary); font-family: 'Inter', sans-serif; font-size: 0.9375rem; }
+        .editor-container .ql-editor { color: var(--text-primary); min-height: 400px; line-height: 1.8; padding: 2rem; }
+        .editor-container .ql-editor.ql-blank::before { color: var(--text-muted); font-style: normal; }
+        .editor-container .ql-snow .ql-picker-options { background: var(--bg-card) !important; border-color: var(--border) !important; }
+        .editor-container .ql-snow .ql-picker-item { color: var(--text-secondary) !important; }
+        .editor-container .ql-snow .ql-picker-item:hover { color: var(--accent) !important; }
 
-        .modal h3 {
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
+        /* AI Assist floating panel */
+        .ai-panel { display: none; position: fixed; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75rem; box-shadow: var(--shadow); z-index: 500; min-width: 280px; max-width: 400px; }
+        .ai-panel.active { display: block; }
+        .ai-panel-actions { display: flex; gap: 0.25rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+        .ai-btn { background: var(--bg-card-hover); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.6875rem; padding: 4px 8px; border-radius: 5px; cursor: pointer; transition: all 0.15s; }
+        .ai-btn:hover { color: var(--accent); border-color: var(--accent); }
+        .ai-result { font-size: 0.8125rem; line-height: 1.6; color: var(--text-primary); max-height: 200px; overflow-y: auto; padding: 0.5rem; background: var(--bg-input); border-radius: 6px; margin-bottom: 0.5rem; }
+        .ai-result-actions { display: flex; gap: 0.25rem; justify-content: flex-end; }
 
-        .modal-close {
-            margin-left: auto;
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            font-size: 1.25rem;
-        }
+        /* ─── Shared Components ─────────────── */
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; padding: 0.5rem 0.875rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+        .btn:hover { background: var(--bg-card-hover); border-color: var(--border-hover); }
+        .btn-primary { background: var(--accent); border-color: var(--accent); color: white; }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-sm { padding: 0.3rem 0.625rem; font-size: 0.6875rem; }
+        .btn-danger { color: var(--accent-red); border-color: rgba(248,113,113,0.3); }
+        .btn-danger:hover { background: rgba(248,113,113,0.1); }
 
-        .input {
-            width: 100%;
-            padding: 0.75rem 1rem;
-            background: var(--bg-input);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            color: var(--text-primary);
-            font-size: 0.875rem;
-            font-family: inherit;
-            outline: none;
-            transition: border-color 0.2s;
-        }
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-overlay.active { display: flex; }
+        .modal { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.75rem; width: 90%; max-width: 440px; box-shadow: var(--shadow); animation: fadeIn 0.2s ease; }
+        .modal h3 { font-size: 0.9375rem; font-weight: 600; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+        .modal-close { margin-left: auto; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.125rem; }
+        .input { width: 100%; padding: 0.625rem 0.875rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 0.8125rem; font-family: inherit; outline: none; transition: border-color 0.2s; }
+        .input:focus { border-color: var(--accent); }
+        .input-group { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+        .input-label { font-size: 0.75rem; color: var(--text-secondary); font-weight: 500; }
 
-        .input:focus {
-            border-color: var(--accent);
-        }
-
-        .input-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-            margin-bottom: 1.25rem;
-        }
-
-        .input-label {
-            font-size: 0.8125rem;
-            color: var(--text-secondary);
-            font-weight: 500;
-        }
-
-        .file-drop {
-            border: 2px dashed var(--border);
-            border-radius: var(--radius);
-            padding: 2rem;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            color: var(--text-muted);
-            font-size: 0.8125rem;
-        }
-
-        .file-drop:hover, .file-drop.dragover {
-            border-color: var(--accent);
-            background: var(--accent-glow);
-            color: var(--text-secondary);
-        }
-
+        .file-drop { border: 2px dashed var(--border); border-radius: var(--radius); padding: 1.5rem; text-align: center; cursor: pointer; transition: all 0.2s; color: var(--text-muted); font-size: 0.75rem; }
+        .file-drop:hover, .file-drop.dragover { border-color: var(--accent); background: var(--accent-glow); }
         .file-drop input { display: none; }
+        .status-msg { font-size: 0.75rem; padding: 0.625rem 0.875rem; border-radius: var(--radius-sm); margin-top: 0.5rem; }
+        .status-success { background: rgba(52,211,153,0.1); color: var(--accent-green); border: 1px solid rgba(52,211,153,0.2); }
+        .status-error { background: rgba(248,113,113,0.1); color: var(--accent-red); border: 1px solid rgba(248,113,113,0.2); }
+        .status-loading { background: rgba(124,92,252,0.1); color: var(--accent); border: 1px solid rgba(124,92,252,0.2); }
 
-        .status-msg {
-            font-size: 0.8125rem;
-            padding: 0.75rem 1rem;
-            border-radius: var(--radius-sm);
-            margin-top: 0.75rem;
-        }
-
-        .status-success {
-            background: rgba(52, 211, 153, 0.1);
-            color: var(--accent-green);
-            border: 1px solid rgba(52, 211, 153, 0.2);
-        }
-
-        .status-error {
-            background: rgba(248, 113, 113, 0.1);
-            color: var(--accent-red);
-            border: 1px solid rgba(248, 113, 113, 0.2);
-        }
-
-        .status-loading {
-            background: rgba(124, 92, 252, 0.1);
-            color: var(--accent);
-            border: 1px solid rgba(124, 92, 252, 0.2);
-        }
-
-        /* ─── Responsive ─────────────────────────────────────── */
-        @media (max-width: 768px) {
-            .panel-sources { display: none; }
-        }
+        /* Note selector dropdown */
+        .note-selector { position: absolute; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.5rem; box-shadow: var(--shadow); z-index: 200; min-width: 200px; max-height: 200px; overflow-y: auto; display: none; }
+        .note-selector.active { display: block; }
+        .note-selector-item { padding: 0.375rem 0.625rem; border-radius: 5px; font-size: 0.75rem; cursor: pointer; color: var(--text-secondary); }
+        .note-selector-item:hover { background: var(--accent-glow); color: var(--accent); }
+        .note-selector-new { color: var(--accent); border-top: 1px solid var(--border); margin-top: 0.25rem; padding-top: 0.375rem; }
     </style>
 </head>
 <body>
-    <div class="app">
-        <!-- Sources Panel -->
-        <div class="panel panel-sources">
-            <div class="panel-header">
-                <h2><span class="logo">DocChat</span></h2>
-                <span class="source-count" id="sourceCount">0 sources</span>
-            </div>
-            <div class="source-actions">
-                <button class="btn btn-primary" onclick="openModal('upload')">
-                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 1v10M4 5l4-4 4 4"/><path d="M1 11v3h14v-3"/></svg>
-                    Upload File
-                </button>
-                <div style="display: flex; gap: 0.5rem;">
-                    <button class="btn" style="flex:1" onclick="openModal('url')">
-                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7" cy="7" r="6"/><path d="M1 7h12M7 1c-2 2-2 10 0 12M7 1c2 2 2 10 0 12"/></svg>
-                        URL
-                    </button>
-                    <button class="btn" style="flex:1" onclick="openModal('youtube')">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M23 9.71a8.5 8.5 0 0 0-.91-4.13 2.92 2.92 0 0 0-1.72-1.12A69 69 0 0 0 12 4a69 69 0 0 0-8.37.46 2.92 2.92 0 0 0-1.72 1.12A8.5 8.5 0 0 0 1 9.71a57 57 0 0 0 0 4.58 8.5 8.5 0 0 0 .91 4.13 2.92 2.92 0 0 0 1.72 1.12A69 69 0 0 0 12 20a69 69 0 0 0 8.37-.46 2.92 2.92 0 0 0 1.72-1.12 8.5 8.5 0 0 0 .91-4.13 57 57 0 0 0 0-4.58zM9.74 14.85V8.15l5.53 3.35z"/></svg>
-                        YouTube
-                    </button>
+<div class="app">
+    <!-- ─── Sidebar ─── -->
+    <div class="sidebar">
+        <div class="sidebar-header"><span class="logo">DocChat</span></div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-section-title">Notebooks <button class="sidebar-add" style="width:auto; margin:0; padding:2px 6px; border:none;" onclick="createNotebook()" title="New Notebook">+</button></div>
+        </div>
+        <div class="sidebar-list" id="notebookList"></div>
+
+        <div class="sidebar-section" style="margin-top:0.5rem;">
+            <div class="sidebar-section-title">Sources <span id="sourceCount" style="font-weight:400">0</span></div>
+        </div>
+        <div style="padding:0 0.75rem; overflow-y:auto; max-height:180px;" id="sourceList"></div>
+        <div style="padding:0.25rem 0.75rem; display:flex; gap:0.25rem;">
+            <button class="sidebar-add" onclick="openModal('upload')">📄 File</button>
+            <button class="sidebar-add" onclick="openModal('url')">🌐 URL</button>
+            <button class="sidebar-add" onclick="openModal('youtube')">🎥 YT</button>
+        </div>
+
+        <div class="model-section">
+            <div class="model-label">🤖 AI Model</div>
+            <select class="model-select" id="modelSelect" onchange="selectModel(this.value)">
+                <option value="">Loading...</option>
+            </select>
+            <div class="model-status" id="modelStatus"></div>
+        </div>
+    </div>
+
+    <!-- ─── Main Area ─── -->
+    <div class="main">
+        <div class="main-header">
+            <button class="tab active" data-tab="chat" onclick="switchTab('chat')">💬 Chat</button>
+            <button class="tab" data-tab="notes" onclick="switchTab('notes')">📝 Notes <span class="tab-badge" id="notesBadge">0</span></button>
+            <button class="tab" data-tab="editor" onclick="switchTab('editor')">✍️ Editor</button>
+        </div>
+        <div class="main-content">
+            <!-- Chat Tab -->
+            <div class="tab-panel active" id="panel-chat">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="chat-empty">
+                        <div class="chat-empty-icon">💬</div>
+                        <h3>Ask anything about your documents</h3>
+                        <p>Upload a document, website, or YouTube video, then ask questions to get cited answers.</p>
+                    </div>
+                </div>
+                <div class="chat-input-area">
+                    <form class="chat-input-wrapper" onsubmit="sendMessage(event)">
+                        <input type="text" class="chat-input" id="chatInput" placeholder="Ask a question..." autocomplete="off">
+                        <button type="submit" class="send-btn" id="sendBtn"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8l12-6-6 12V8z"/><path d="M2 8h6"/></svg></button>
+                    </form>
                 </div>
             </div>
-            <div class="source-list" id="sourceList">
-                <div class="source-empty">
-                    <p>📄 No sources yet</p>
-                    <p>Upload a PDF, add a website URL, or paste a YouTube link to get started.</p>
+
+            <!-- Notes Tab -->
+            <div class="tab-panel" id="panel-notes">
+                <div id="notesListView">
+                    <div class="notes-toolbar">
+                        <button class="btn btn-primary btn-sm" onclick="createNote()">+ New Note</button>
+                    </div>
+                    <div class="notes-list" id="notesList"></div>
+                </div>
+                <div class="note-editor" id="noteEditorView">
+                    <div class="note-editor-header">
+                        <button class="btn btn-sm" onclick="closeNoteEditor()">← Back</button>
+                        <input type="text" class="note-title-input" id="noteTitleInput" placeholder="Note title...">
+                        <button class="btn btn-sm btn-danger" onclick="deleteCurrentNote()">🗑</button>
+                        <button class="btn btn-sm" onclick="saveCurrentNote()">💾 Save</button>
+                    </div>
+                    <div class="note-content-area">
+                        <textarea class="note-textarea" id="noteContentArea" placeholder="Start writing..."></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Editor Tab -->
+            <div class="tab-panel" id="panel-editor">
+                <div class="editor-area">
+                    <div class="editor-toolbar-custom">
+                        <button class="btn btn-sm" onclick="insertNoteIntoEditor()">📝 Insert Note</button>
+                        <div style="flex:1"></div>
+                        <span style="font-size:0.6875rem; color:var(--text-muted);" id="wordCount">0 words</span>
+                        <button class="btn btn-sm" onclick="exportDoc('txt')">📄 TXT</button>
+                        <button class="btn btn-sm" onclick="exportDoc('md')">📋 MD</button>
+                        <button class="btn btn-sm" onclick="exportDoc('docx')">📘 DOCX</button>
+                        <button class="btn btn-sm" onclick="window.print()">🖨 Print/PDF</button>
+                    </div>
+                    <div class="editor-container">
+                        <div id="quillEditor"></div>
+                    </div>
                 </div>
             </div>
         </div>
-
-        <!-- Chat Panel -->
-        <div class="panel panel-chat">
-            <div class="panel-header">
-                <h2>💬 Chat</h2>
-                <button class="btn btn-sm" onclick="clearChat()" id="clearBtn" style="display:none">Clear Chat</button>
-            </div>
-            <div class="chat-messages" id="chatMessages">
-                <div class="chat-empty">
-                    <div class="chat-empty-icon">💬</div>
-                    <h3>Ask anything about your documents</h3>
-                    <p>Upload a document, website, or YouTube video, then ask questions to get cited answers.</p>
-                </div>
-            </div>
-            <div class="chat-input-area">
-                <form class="chat-input-wrapper" onsubmit="sendMessage(event)">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Ask a question about your sources..." autocomplete="off">
-                    <button type="submit" class="send-btn" id="sendBtn">
-                        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 9l14-7-7 14V9z"/><path d="M2 9h7"/></svg>
-                    </button>
-                </form>
-            </div>
-        </div>
     </div>
+</div>
 
-    <!-- Upload Modal -->
-    <div class="modal-overlay" id="modal-upload">
-        <div class="modal">
-            <h3>📄 Upload Document <button class="modal-close" onclick="closeModals()">&times;</button></h3>
-            <div class="file-drop" id="fileDrop" onclick="document.getElementById('fileInput').click()">
-                <p style="font-size:1.5rem; margin-bottom:0.5rem;">📁</p>
-                <p>Drag & drop files here or click to browse</p>
-                <p style="margin-top:0.5rem; font-size:0.75rem; color:var(--text-muted)">Supports PDF, TXT, MD</p>
-                <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md" onchange="handleFileUpload(this.files)">
-            </div>
-            <div id="uploadStatus"></div>
-        </div>
+<!-- AI Assist Panel (floating) -->
+<div class="ai-panel" id="aiPanel">
+    <div class="ai-panel-actions">
+        <button class="ai-btn" onclick="aiAssist('grammar')">✏️ Grammar</button>
+        <button class="ai-btn" onclick="aiAssist('rewrite')">🔄 Rewrite</button>
+        <button class="ai-btn" onclick="aiAssist('define')">📖 Define</button>
+        <button class="ai-btn" onclick="aiAssist('simplify')">✨ Simplify</button>
+        <button class="ai-btn" onclick="aiAssist('expand')">📝 Expand</button>
     </div>
-
-    <!-- URL Modal -->
-    <div class="modal-overlay" id="modal-url">
-        <div class="modal">
-            <h3>🌐 Add Website <button class="modal-close" onclick="closeModals()">&times;</button></h3>
-            <div class="input-group">
-                <label class="input-label">Website URL</label>
-                <input type="url" class="input" id="urlInput" placeholder="https://example.com/article">
-            </div>
-            <button class="btn btn-primary" style="width:100%" onclick="handleURLSubmit()">Add Website</button>
-            <div id="urlStatus"></div>
-        </div>
+    <div class="ai-result" id="aiResult" style="display:none"></div>
+    <div class="ai-result-actions" id="aiResultActions" style="display:none">
+        <button class="btn btn-sm" onclick="dismissAI()">Dismiss</button>
+        <button class="btn btn-sm btn-primary" onclick="acceptAI()">Accept</button>
     </div>
+</div>
 
-    <!-- YouTube Modal -->
-    <div class="modal-overlay" id="modal-youtube">
-        <div class="modal">
-            <h3>🎥 Add YouTube Video <button class="modal-close" onclick="closeModals()">&times;</button></h3>
-            <div class="input-group">
-                <label class="input-label">YouTube URL</label>
-                <input type="url" class="input" id="youtubeInput" placeholder="https://www.youtube.com/watch?v=...">
-            </div>
-            <button class="btn btn-primary" style="width:100%" onclick="handleYouTubeSubmit()">Extract Transcript</button>
-            <div id="youtubeStatus"></div>
+<!-- Note Selector Dropdown -->
+<div class="note-selector" id="noteSelector"></div>
+
+<!-- Modals -->
+<div class="modal-overlay" id="modal-upload">
+    <div class="modal">
+        <h3>📄 Upload Document <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div class="file-drop" id="fileDrop" onclick="document.getElementById('fileInput').click()">
+            <p style="font-size:1.25rem; margin-bottom:0.375rem;">📁</p>
+            <p>Drag & drop or click to browse</p>
+            <p style="margin-top:0.25rem; font-size:0.625rem; color:var(--text-muted)">PDF, TXT, MD</p>
+            <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md" onchange="handleFileUpload(this.files)">
         </div>
+        <div id="uploadStatus"></div>
     </div>
+</div>
+<div class="modal-overlay" id="modal-url">
+    <div class="modal">
+        <h3>🌐 Add Website <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div class="input-group"><label class="input-label">URL</label><input type="url" class="input" id="urlInput" placeholder="https://example.com"></div>
+        <button class="btn btn-primary" style="width:100%" onclick="handleURLSubmit()">Add</button>
+        <div id="urlStatus"></div>
+    </div>
+</div>
+<div class="modal-overlay" id="modal-youtube">
+    <div class="modal">
+        <h3>🎥 YouTube Video <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div class="input-group"><label class="input-label">YouTube URL</label><input type="url" class="input" id="youtubeInput" placeholder="https://youtube.com/watch?v=..."></div>
+        <button class="btn btn-primary" style="width:100%" onclick="handleYouTubeSubmit()">Extract</button>
+        <div id="youtubeStatus"></div>
+    </div>
+</div>
 
+<script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
 <script>
-const API = '';  // Same origin
-
-// ─── State ──────────────────────────────────────────────
+const API = '';
+let activeNotebookId = null;
+let notebooks = [];
 let sources = [];
 let chatHistory = [];
+let notes = [];
+let currentNoteId = null;
 let isLoading = false;
+let quill = null;
+let currentSpeech = null;
 
-// ─── Init ───────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-    loadSources();
-    loadHistory();
+// ─── Init ──────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+    initQuill();
+    await loadNotebooks();
+    await loadModels();
     setupDragDrop();
+    document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeModals(); }));
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
 });
 
-// ─── API Calls ──────────────────────────────────────────
+function initQuill() {
+    quill = new Quill('#quillEditor', {
+        theme: 'snow',
+        placeholder: 'Start writing your document...',
+        modules: {
+            toolbar: [
+                [{ header: [1, 2, 3, false] }],
+                ['bold', 'italic', 'underline', 'strike'],
+                [{ list: 'ordered' }, { list: 'bullet' }],
+                ['blockquote', 'code-block'],
+                ['link'],
+                ['clean'],
+            ],
+        },
+    });
+    quill.on('text-change', () => {
+        const text = quill.getText().trim();
+        document.getElementById('wordCount').textContent = text ? text.split(/\s+/).length + ' words' : '0 words';
+    });
+    // Show AI panel on text selection
+    quill.on('selection-change', (range) => {
+        if (range && range.length > 0) {
+            const bounds = quill.getBounds(range.index, range.length);
+            const editorRect = document.querySelector('.editor-container').getBoundingClientRect();
+            const panel = document.getElementById('aiPanel');
+            panel.style.top = (editorRect.top + bounds.top + bounds.height + 8) + 'px';
+            panel.style.left = Math.min(editorRect.left + bounds.left, window.innerWidth - 320) + 'px';
+            panel.classList.add('active');
+            document.getElementById('aiResult').style.display = 'none';
+            document.getElementById('aiResultActions').style.display = 'none';
+        } else {
+            setTimeout(() => {
+                if (!document.getElementById('aiPanel').matches(':hover'))
+                    document.getElementById('aiPanel').classList.remove('active');
+            }, 200);
+        }
+    });
+}
+
+// ─── Notebooks ─────────────────────────────────────
+async function loadNotebooks() {
+    try {
+        const res = await fetch(`${API}/api/notebooks`);
+        const data = await res.json();
+        notebooks = data.notebooks || [];
+        if (!activeNotebookId && notebooks.length) activeNotebookId = notebooks[0].id;
+        renderNotebooks();
+        await Promise.all([loadSources(), loadHistory(), loadNotes()]);
+    } catch (e) { console.error(e); }
+}
+
+function renderNotebooks() {
+    const el = document.getElementById('notebookList');
+    el.innerHTML = notebooks.map(nb => `
+        <div class="nb-item ${nb.id === activeNotebookId ? 'active' : ''}" onclick="switchNotebook(${nb.id})">
+            <span class="nb-icon">📓</span>
+            <span class="nb-name">${esc(nb.name)}</span>
+            <span class="nb-badge">${nb.chats}</span>
+            <button class="nb-delete" onclick="event.stopPropagation(); deleteNotebook(${nb.id})" title="Delete">✕</button>
+        </div>
+    `).join('');
+}
+
+async function switchNotebook(id) {
+    activeNotebookId = id;
+    renderNotebooks();
+    await Promise.all([loadSources(), loadHistory(), loadNotes()]);
+    closeNoteEditor();
+}
+
+async function createNotebook() {
+    const name = prompt('Notebook name:');
+    if (!name) return;
+    await fetch(`${API}/api/notebooks`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name}) });
+    await loadNotebooks();
+}
+
+async function deleteNotebook(id) {
+    if (!confirm('Delete this notebook and all its data?')) return;
+    const res = await fetch(`${API}/api/notebooks/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+        if (activeNotebookId === id) activeNotebookId = null;
+        await loadNotebooks();
+    } else {
+        const err = await res.json();
+        alert(err.detail || 'Cannot delete');
+    }
+}
+
+// ─── Models ────────────────────────────────────────
+async function loadModels() {
+    try {
+        const res = await fetch(`${API}/api/models`);
+        const data = await res.json();
+        const sel = document.getElementById('modelSelect');
+        const status = document.getElementById('modelStatus');
+        if (data.ollama_available && data.models.length) {
+            sel.innerHTML = data.models.map(m => `<option value="${m.name}" ${m.active ? 'selected' : ''}>${m.name} (${m.size})</option>`).join('');
+            status.className = 'model-status online';
+            status.textContent = '● Ollama connected';
+        } else if (data.ollama_available) {
+            sel.innerHTML = '<option>No models installed</option>';
+            status.className = 'model-status online';
+            status.textContent = '● Connected, no models';
+        } else {
+            sel.innerHTML = '<option>Ollama offline</option>';
+            status.className = 'model-status offline';
+            status.textContent = '○ Ollama not running';
+        }
+    } catch (e) {
+        document.getElementById('modelStatus').className = 'model-status offline';
+        document.getElementById('modelStatus').textContent = '○ Error loading models';
+    }
+}
+
+async function selectModel(model) {
+    if (!model) return;
+    await fetch(`${API}/api/models/select`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({model}) });
+}
+
+// ─── Tabs ──────────────────────────────────────────
+function switchTab(tab) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tab}`));
+}
+
+// ─── Sources ───────────────────────────────────────
 async function loadSources() {
     try {
-        const res = await fetch(`${API}/api/sources`);
+        const res = await fetch(`${API}/api/sources?notebook_id=${activeNotebookId}`);
         const data = await res.json();
         sources = data.sources || [];
         renderSources();
-    } catch (e) { console.error('Load sources error:', e); }
+    } catch (e) { console.error(e); }
 }
 
+function renderSources() {
+    document.getElementById('sourceCount').textContent = sources.length;
+    const el = document.getElementById('sourceList');
+    if (!sources.length) { el.innerHTML = '<div style="padding:0.5rem; font-size:0.6875rem; color:var(--text-muted); text-align:center;">No sources yet</div>'; return; }
+    el.innerHTML = sources.map(s => {
+        const ic = s.type === 'Website' ? 'web' : s.type === 'YouTube' ? 'yt' : 'doc';
+        const em = s.type === 'Website' ? '🌐' : s.type === 'YouTube' ? '🎥' : '📄';
+        return `<div class="src-item"><div class="src-icon src-icon-${ic}">${em}</div><span class="src-name" title="${esc(s.name)}">${esc(s.name)}</span><button class="src-del" onclick="deleteSource(${s.id})">✕</button></div>`;
+    }).join('');
+}
+
+async function deleteSource(id) { await fetch(`${API}/api/sources/${id}`, { method: 'DELETE' }); await loadSources(); }
+
+// ─── Chat ──────────────────────────────────────────
 async function loadHistory() {
     try {
-        const res = await fetch(`${API}/api/history`);
+        const res = await fetch(`${API}/api/history?notebook_id=${activeNotebookId}`);
         const data = await res.json();
         chatHistory = data.history || [];
         renderChat();
-    } catch (e) { console.error('Load history error:', e); }
+    } catch (e) { console.error(e); }
 }
 
-async function handleFileUpload(files) {
-    if (!files.length) return;
-    const status = document.getElementById('uploadStatus');
-    status.innerHTML = `<div class="status-msg status-loading">⏳ Processing ${files.length} file(s)...</div>`;
-
-    const formData = new FormData();
-    for (const f of files) formData.append('files', f);
-
-    try {
-        const res = await fetch(`${API}/api/upload`, { method: 'POST', body: formData });
-        const data = await res.json();
-        const results = data.results || [];
-        const ok = results.filter(r => r.status === 'ok');
-        const errors = results.filter(r => r.error);
-
-        let html = '';
-        if (ok.length) html += `<div class="status-msg status-success">✅ ${ok.length} file(s) processed (${ok.map(r => r.chunks + ' chunks').join(', ')})</div>`;
-        if (errors.length) html += `<div class="status-msg status-error">❌ ${errors.map(r => r.file + ': ' + r.error).join('<br>')}</div>`;
-        status.innerHTML = html;
-
-        await loadSources();
-        setTimeout(() => { if (ok.length) closeModals(); }, 1500);
-    } catch (e) {
-        status.innerHTML = `<div class="status-msg status-error">❌ Upload failed: ${e.message}</div>`;
+function renderChat() {
+    const el = document.getElementById('chatMessages');
+    if (!chatHistory.length) {
+        el.innerHTML = '<div class="chat-empty"><div class="chat-empty-icon">💬</div><h3>Ask anything about your documents</h3><p>Upload sources, then ask questions for cited answers.</p></div>';
+        return;
     }
-}
-
-async function handleURLSubmit() {
-    const url = document.getElementById('urlInput').value.trim();
-    if (!url) return;
-    const status = document.getElementById('urlStatus');
-    status.innerHTML = `<div class="status-msg status-loading">⏳ Scraping website...</div>`;
-
-    try {
-        const res = await fetch(`${API}/api/url`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ urls: [url] }),
-        });
-        const data = await res.json();
-        const r = (data.results || [])[0] || {};
-        if (r.status === 'ok') {
-            status.innerHTML = `<div class="status-msg status-success">✅ "${r.title}" — ${r.chunks} chunks</div>`;
-            document.getElementById('urlInput').value = '';
-            await loadSources();
-            setTimeout(closeModals, 1500);
-        } else {
-            status.innerHTML = `<div class="status-msg status-error">❌ ${r.error || 'Failed to scrape'}</div>`;
+    el.innerHTML = chatHistory.map((msg, i) => {
+        if (msg.role === 'user') return `<div class="msg msg-user"><div class="msg-bubble">${esc(msg.content)}</div></div>`;
+        let html = formatResponse(msg.content);
+        let srcTags = '';
+        if (msg.sources && msg.sources.length) {
+            const uniq = [...new Map(msg.sources.map(s => [s.source_file, s])).values()];
+            srcTags = `<div class="msg-sources">${uniq.map(s => `<span class="msg-source-tag">${esc(s.source_file)}</span>`).join('')}</div>`;
         }
-    } catch (e) {
-        status.innerHTML = `<div class="status-msg status-error">❌ ${e.message}</div>`;
-    }
-}
-
-async function handleYouTubeSubmit() {
-    const url = document.getElementById('youtubeInput').value.trim();
-    if (!url) return;
-    const status = document.getElementById('youtubeStatus');
-    status.innerHTML = `<div class="status-msg status-loading">⏳ Extracting transcript...</div>`;
-
-    try {
-        const res = await fetch(`${API}/api/youtube`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url }),
-        });
-        if (res.ok) {
-            const data = await res.json();
-            status.innerHTML = `<div class="status-msg status-success">✅ "${data.title}" — ${data.chunks} chunks</div>`;
-            document.getElementById('youtubeInput').value = '';
-            await loadSources();
-            setTimeout(closeModals, 1500);
-        } else {
-            const err = await res.json();
-            status.innerHTML = `<div class="status-msg status-error">❌ ${err.detail || 'Failed'}</div>`;
-        }
-    } catch (e) {
-        status.innerHTML = `<div class="status-msg status-error">❌ ${e.message}</div>`;
-    }
+        return `<div class="msg msg-assistant">
+            <div class="msg-bubble">${html}${srcTags}</div>
+            <div class="msg-actions">
+                <button class="msg-action-btn" onclick="speakText(this, ${i})" title="Read aloud">🔊</button>
+                <button class="msg-action-btn" onclick="showNoteSelector(event, ${i})" title="Add to note">📝 Note</button>
+            </div>
+        </div>`;
+    }).join('');
+    el.scrollTop = el.scrollHeight;
 }
 
 async function sendMessage(e) {
@@ -804,194 +566,291 @@ async function sendMessage(e) {
     const input = document.getElementById('chatInput');
     const query = input.value.trim();
     if (!query || isLoading) return;
-
-    // Add user message
     chatHistory.push({ role: 'user', content: query, sources: [] });
     renderChat();
     input.value = '';
     isLoading = true;
-    updateSendBtn();
-
-    // Show loading
+    document.getElementById('sendBtn').disabled = true;
     const msgs = document.getElementById('chatMessages');
-    const loadingEl = document.createElement('div');
-    loadingEl.className = 'msg-loading';
-    loadingEl.innerHTML = '<div class="loading-dots"><span></span><span></span><span></span></div>&nbsp; Thinking...';
-    msgs.appendChild(loadingEl);
+    const ld = document.createElement('div');
+    ld.className = 'msg-loading';
+    ld.innerHTML = '<div class="loading-dots"><span></span><span></span><span></span></div>&nbsp; Thinking...';
+    msgs.appendChild(ld);
     msgs.scrollTop = msgs.scrollHeight;
-
     try {
-        const res = await fetch(`${API}/api/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query }),
-        });
+        const res = await fetch(`${API}/api/chat`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ query, notebook_id: activeNotebookId }) });
         const data = await res.json();
-        chatHistory.push({
-            role: 'assistant',
-            content: data.response,
-            sources: data.sources_used || [],
-        });
-    } catch (e) {
-        chatHistory.push({
-            role: 'assistant',
-            content: `Error: ${e.message}. Make sure the backend is running.`,
-            sources: [],
-        });
+        chatHistory.push({ role: 'assistant', content: data.response, sources: data.sources_used || [] });
+    } catch (err) {
+        chatHistory.push({ role: 'assistant', content: `Error: ${err.message}`, sources: [] });
     } finally {
         isLoading = false;
-        updateSendBtn();
+        document.getElementById('sendBtn').disabled = false;
         renderChat();
     }
 }
 
-async function deleteSource(id) {
+// ─── TTS ───────────────────────────────────────────
+function speakText(btn, msgIndex) {
+    if (currentSpeech) { speechSynthesis.cancel(); currentSpeech = null; btn.classList.remove('speaking'); btn.textContent = '🔊'; return; }
+    const text = chatHistory[msgIndex]?.content;
+    if (!text) return;
+    const clean = text.replace(/\[(\d+)\]/g, '').replace(/\*\*/g, '');
+    const utter = new SpeechSynthesisUtterance(clean);
+    utter.rate = 1; utter.pitch = 1;
+    btn.classList.add('speaking'); btn.textContent = '⏸';
+    currentSpeech = utter;
+    utter.onend = () => { currentSpeech = null; btn.classList.remove('speaking'); btn.textContent = '🔊'; };
+    speechSynthesis.speak(utter);
+}
+
+// ─── Notes ─────────────────────────────────────────
+async function loadNotes() {
+    if (!activeNotebookId) return;
     try {
-        await fetch(`${API}/api/sources/${id}`, { method: 'DELETE' });
-        await loadSources();
+        const res = await fetch(`${API}/api/notebooks/${activeNotebookId}/notes`);
+        const data = await res.json();
+        notes = data.notes || [];
+        document.getElementById('notesBadge').textContent = notes.length;
+        renderNotes();
     } catch (e) { console.error(e); }
 }
 
-async function clearChat() {
-    chatHistory = [];
-    renderChat();
-}
-
-// ─── Rendering ──────────────────────────────────────────
-function renderSources() {
-    const el = document.getElementById('sourceList');
-    const countEl = document.getElementById('sourceCount');
-    countEl.textContent = `${sources.length} source${sources.length !== 1 ? 's' : ''}`;
-
-    if (!sources.length) {
-        el.innerHTML = `<div class="source-empty"><p>📄 No sources yet</p><p>Upload a PDF, add a website URL, or paste a YouTube link to get started.</p></div>`;
+function renderNotes() {
+    const el = document.getElementById('notesList');
+    if (!notes.length) {
+        el.innerHTML = '<div style="text-align:center; padding:3rem; color:var(--text-muted); font-size:0.8125rem;"><p style="font-size:1.5rem; margin-bottom:0.5rem;">📝</p><p>No notes yet</p><p style="margin-top:0.25rem;">Click "New Note" or add text from chat.</p></div>';
         return;
     }
-
-    el.innerHTML = sources.map(s => {
-        const iconClass = s.type === 'Website' ? 'web' : s.type === 'YouTube' ? 'yt' : 'doc';
-        const icon = s.type === 'Website' ? '🌐' : s.type === 'YouTube' ? '🎥' : '📄';
-        return `
-            <div class="source-item">
-                <div class="source-icon source-icon-${iconClass}">${icon}</div>
-                <div class="source-info">
-                    <div class="source-name" title="${esc(s.name)}">${esc(s.name)}</div>
-                    <div class="source-meta">${s.type} · ${s.chunks} chunks</div>
-                </div>
-                <button class="source-delete" onclick="deleteSource(${s.id})" title="Remove">✕</button>
-            </div>
-        `;
-    }).join('');
+    el.innerHTML = notes.map(n => `
+        <div class="note-card" onclick="openNote(${n.id})">
+            <div class="note-card-title">${esc(n.title)}</div>
+            <div class="note-card-preview">${esc(n.preview || '')}</div>
+            <div class="note-card-meta"><span>${new Date(n.updated_at).toLocaleDateString()}</span></div>
+        </div>
+    `).join('');
 }
 
-function renderChat() {
-    const el = document.getElementById('chatMessages');
-    const clearBtn = document.getElementById('clearBtn');
-    clearBtn.style.display = chatHistory.length ? '' : 'none';
+async function createNote() {
+    const id = await fetch(`${API}/api/notebooks/${activeNotebookId}/notes`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ title: 'Untitled Note', content: '' }),
+    }).then(r => r.json()).then(d => d.id);
+    await loadNotes();
+    openNote(id);
+}
 
-    if (!chatHistory.length) {
-        el.innerHTML = `
-            <div class="chat-empty">
-                <div class="chat-empty-icon">💬</div>
-                <h3>Ask anything about your documents</h3>
-                <p>Upload a document, website, or YouTube video, then ask questions to get cited answers.</p>
-            </div>`;
-        return;
+async function openNote(id) {
+    const res = await fetch(`${API}/api/notes/${id}`);
+    const note = await res.json();
+    currentNoteId = id;
+    document.getElementById('noteTitleInput').value = note.title;
+    document.getElementById('noteContentArea').value = note.content || '';
+    document.getElementById('notesListView').style.display = 'none';
+    document.getElementById('noteEditorView').classList.add('active');
+}
+
+function closeNoteEditor() {
+    currentNoteId = null;
+    document.getElementById('notesListView').style.display = '';
+    document.getElementById('noteEditorView').classList.remove('active');
+}
+
+async function saveCurrentNote() {
+    if (!currentNoteId) return;
+    await fetch(`${API}/api/notes/${currentNoteId}`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ title: document.getElementById('noteTitleInput').value, content: document.getElementById('noteContentArea').value }),
+    });
+    await loadNotes();
+}
+
+async function deleteCurrentNote() {
+    if (!currentNoteId || !confirm('Delete this note?')) return;
+    await fetch(`${API}/api/notes/${currentNoteId}`, { method: 'DELETE' });
+    closeNoteEditor();
+    await loadNotes();
+}
+
+// ─── Add to Note (from chat) ───────────────────────
+function showNoteSelector(event, msgIndex) {
+    event.stopPropagation();
+    const sel = document.getElementById('noteSelector');
+    const text = chatHistory[msgIndex]?.content || '';
+    let html = notes.map(n => `<div class="note-selector-item" onclick="appendToNote(${n.id}, \`${btoa(encodeURIComponent(text))}\`)">${esc(n.title)}</div>`).join('');
+    html += `<div class="note-selector-item note-selector-new" onclick="createNoteFromChat(\`${btoa(encodeURIComponent(text))}\`)">+ New Note</div>`;
+    sel.innerHTML = html;
+    const rect = event.target.getBoundingClientRect();
+    sel.style.top = (rect.bottom + 4) + 'px';
+    sel.style.left = rect.left + 'px';
+    sel.classList.add('active');
+    setTimeout(() => document.addEventListener('click', () => sel.classList.remove('active'), { once: true }), 10);
+}
+
+async function appendToNote(noteId, encodedText) {
+    const text = decodeURIComponent(atob(encodedText));
+    await fetch(`${API}/api/notes/${noteId}/append`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ text }) });
+    document.getElementById('noteSelector').classList.remove('active');
+    await loadNotes();
+}
+
+async function createNoteFromChat(encodedText) {
+    const text = decodeURIComponent(atob(encodedText));
+    await fetch(`${API}/api/notebooks/${activeNotebookId}/notes`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ title: 'From Chat', content: text }),
+    });
+    document.getElementById('noteSelector').classList.remove('active');
+    await loadNotes();
+}
+
+// ─── Editor ────────────────────────────────────────
+async function insertNoteIntoEditor() {
+    if (!notes.length) { alert('No notes to insert. Create a note first.'); return; }
+    const sel = document.getElementById('noteSelector');
+    sel.innerHTML = notes.map(n => `<div class="note-selector-item" onclick="doInsertNote(${n.id})">${esc(n.title)}</div>`).join('');
+    const btn = document.querySelector('.editor-toolbar-custom .btn');
+    const rect = btn.getBoundingClientRect();
+    sel.style.top = (rect.bottom + 4) + 'px';
+    sel.style.left = rect.left + 'px';
+    sel.classList.add('active');
+    setTimeout(() => document.addEventListener('click', () => sel.classList.remove('active'), { once: true }), 10);
+}
+
+async function doInsertNote(noteId) {
+    document.getElementById('noteSelector').classList.remove('active');
+    const res = await fetch(`${API}/api/notes/${noteId}`);
+    const note = await res.json();
+    const range = quill.getSelection(true);
+    quill.insertText(range.index, `\n${note.content}\n`, 'user');
+}
+
+// ─── AI Assist ─────────────────────────────────────
+async function aiAssist(action) {
+    const range = quill.getSelection();
+    if (!range || range.length === 0) return;
+    const text = quill.getText(range.index, range.length);
+    const resultEl = document.getElementById('aiResult');
+    const actionsEl = document.getElementById('aiResultActions');
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '<span style="color:var(--accent)">⏳ Processing...</span>';
+    actionsEl.style.display = 'none';
+    try {
+        const res = await fetch(`${API}/api/ai/assist`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ text, action }) });
+        const data = await res.json();
+        resultEl.textContent = data.result;
+        actionsEl.style.display = 'flex';
+        window._aiRange = range;
+        window._aiResult = data.result;
+    } catch (e) {
+        resultEl.innerHTML = `<span style="color:var(--accent-red)">Error: ${e.message}</span>`;
     }
-
-    el.innerHTML = chatHistory.map(msg => {
-        if (msg.role === 'user') {
-            return `<div class="msg msg-user"><div class="msg-bubble">${esc(msg.content)}</div></div>`;
-        }
-
-        // Parse markdown-like formatting for assistant
-        let html = formatResponse(msg.content);
-
-        // Source tags
-        let sourceTags = '';
-        if (msg.sources && msg.sources.length) {
-            const unique = [...new Map(msg.sources.map(s => [s.source_file, s])).values()];
-            sourceTags = `<div class="msg-sources">${unique.map(s => {
-                let tag = esc(s.source_file);
-                if (s.page_number) tag += ` · p.${s.page_number}`;
-                return `<span class="msg-source-tag">${tag}</span>`;
-            }).join('')}</div>`;
-        }
-
-        return `<div class="msg msg-assistant"><div class="msg-bubble">${html}${sourceTags}</div></div>`;
-    }).join('');
-
-    el.scrollTop = el.scrollHeight;
 }
 
+function acceptAI() {
+    if (window._aiRange && window._aiResult) {
+        quill.deleteText(window._aiRange.index, window._aiRange.length);
+        quill.insertText(window._aiRange.index, window._aiResult);
+    }
+    dismissAI();
+}
+
+function dismissAI() {
+    document.getElementById('aiPanel').classList.remove('active');
+    document.getElementById('aiResult').style.display = 'none';
+    document.getElementById('aiResultActions').style.display = 'none';
+}
+
+// ─── Export ────────────────────────────────────────
+async function exportDoc(format) {
+    const html = quill.root.innerHTML;
+    const text = quill.getText().trim();
+    if (!text) { alert('Editor is empty'); return; }
+    try {
+        const res = await fetch(`${API}/api/export`, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ html, format, filename: 'document' }),
+        });
+        if (!res.ok) { const err = await res.json(); alert(err.detail); return; }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `document.${format === 'md' ? 'md' : format}`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (e) { alert('Export error: ' + e.message); }
+}
+
+// ─── Upload / URL / YouTube ────────────────────────
+async function handleFileUpload(files) {
+    if (!files.length) return;
+    const status = document.getElementById('uploadStatus');
+    status.innerHTML = '<div class="status-msg status-loading">⏳ Processing...</div>';
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f);
+    fd.append('notebook_id', activeNotebookId);
+    try {
+        const res = await fetch(`${API}/api/upload`, { method: 'POST', body: fd });
+        const data = await res.json();
+        const ok = (data.results || []).filter(r => r.status === 'ok');
+        const err = (data.results || []).filter(r => r.error);
+        let html = '';
+        if (ok.length) html += `<div class="status-msg status-success">✅ ${ok.length} file(s) processed</div>`;
+        if (err.length) html += `<div class="status-msg status-error">❌ ${err.map(r => r.error).join(', ')}</div>`;
+        status.innerHTML = html;
+        await loadSources();
+        if (ok.length) setTimeout(closeModals, 1200);
+    } catch (e) { status.innerHTML = `<div class="status-msg status-error">❌ ${e.message}</div>`; }
+}
+
+async function handleURLSubmit() {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) return;
+    const status = document.getElementById('urlStatus');
+    status.innerHTML = '<div class="status-msg status-loading">⏳ Scraping...</div>';
+    try {
+        const res = await fetch(`${API}/api/url`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ urls: [url], notebook_id: activeNotebookId }) });
+        const data = await res.json();
+        const r = (data.results || [])[0] || {};
+        if (r.status === 'ok') { status.innerHTML = `<div class="status-msg status-success">✅ "${r.title}" — ${r.chunks} chunks</div>`; document.getElementById('urlInput').value = ''; await loadSources(); setTimeout(closeModals, 1200); }
+        else status.innerHTML = `<div class="status-msg status-error">❌ ${r.error || 'Failed'}</div>`;
+    } catch (e) { status.innerHTML = `<div class="status-msg status-error">❌ ${e.message}</div>`; }
+}
+
+async function handleYouTubeSubmit() {
+    const url = document.getElementById('youtubeInput').value.trim();
+    if (!url) return;
+    const status = document.getElementById('youtubeStatus');
+    status.innerHTML = '<div class="status-msg status-loading">⏳ Extracting...</div>';
+    try {
+        const res = await fetch(`${API}/api/youtube`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ url, notebook_id: activeNotebookId }) });
+        if (res.ok) { const data = await res.json(); status.innerHTML = `<div class="status-msg status-success">✅ "${data.title}" — ${data.chunks} chunks</div>`; document.getElementById('youtubeInput').value = ''; await loadSources(); setTimeout(closeModals, 1200); }
+        else { const err = await res.json(); status.innerHTML = `<div class="status-msg status-error">❌ ${err.detail || 'Failed'}</div>`; }
+    } catch (e) { status.innerHTML = `<div class="status-msg status-error">❌ ${e.message}</div>`; }
+}
+
+// ─── Utils ─────────────────────────────────────────
 function formatResponse(text) {
-    // Escape HTML first
     let html = esc(text);
-
-    // Citation refs [1], [2] → badges
     html = html.replace(/\[(\d+)\]/g, '<span class="citation-ref">$1</span>');
-
-    // Bold **text**
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-    // Inline code `code`
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Newlines → paragraphs
     html = html.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
-
     return html;
 }
 
-function esc(s) {
-    const d = document.createElement('div');
-    d.textContent = s || '';
-    return d.innerHTML;
-}
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
-function updateSendBtn() {
-    document.getElementById('sendBtn').disabled = isLoading;
-}
+function openModal(type) { closeModals(); document.getElementById(`modal-${type}`).classList.add('active'); ['uploadStatus','urlStatus','youtubeStatus'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; }); }
+function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active')); }
 
-// ─── Modals ─────────────────────────────────────────────
-function openModal(type) {
-    closeModals();
-    document.getElementById(`modal-${type}`).classList.add('active');
-    // Clear status messages
-    ['uploadStatus', 'urlStatus', 'youtubeStatus'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.innerHTML = '';
-    });
-}
-
-function closeModals() {
-    document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
-}
-
-// Close on backdrop click
-document.querySelectorAll('.modal-overlay').forEach(overlay => {
-    overlay.addEventListener('click', e => {
-        if (e.target === overlay) closeModals();
-    });
-});
-
-// Close on Escape
-document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeModals();
-});
-
-// ─── Drag & Drop ────────────────────────────────────────
 function setupDragDrop() {
     const drop = document.getElementById('fileDrop');
     if (!drop) return;
-
     drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragover'); });
     drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
-    drop.addEventListener('drop', e => {
-        e.preventDefault();
-        drop.classList.remove('dragover');
-        if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files);
-    });
+    drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('dragover'); if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files); });
 }
 </script>
 </body>

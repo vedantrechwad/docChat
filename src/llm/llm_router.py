@@ -1,12 +1,16 @@
 """
-LLM Router — Gemini-first with optional Ollama fallback.
+LLM Router — Gemini-first with Ollama auto-start and model selection.
 
-Simple routing: try Gemini API first. If not configured or fails,
-fall back to a local Ollama model (if available).
+Tries Gemini API first. If not configured or fails, falls back to
+a local Ollama model. Can auto-start Ollama and list/switch models.
 """
 
 import os
+import sys
+import time
+import shutil
 import logging
+import subprocess
 import httpx
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
@@ -27,10 +31,13 @@ class LLMResponse:
 class LLMRouter:
     """
     Routes LLM requests to Gemini (primary) or Ollama (fallback).
+    Can auto-start Ollama and manage installed models.
 
     Usage:
         router = LLMRouter()
         response = router.generate("Explain quantum physics")
+        models = router.list_models()
+        router.set_model("llama3:8b")
     """
 
     def __init__(
@@ -38,25 +45,87 @@ class LLMRouter:
         gemini_api_key: Optional[str] = None,
         ollama_base_url: str = "http://localhost:11434",
         ollama_model: str = "llama3",
+        auto_start: bool = True,
     ):
         self.gemini_api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
         self.ollama_base_url = ollama_base_url
         self.ollama_model = ollama_model
         self._http_client = httpx.Client(timeout=120.0)
+        self._ollama_process = None  # Track the subprocess we started
 
         # Validate the key isn't a placeholder
         if self.gemini_api_key and "your_" in self.gemini_api_key.lower():
             self.gemini_api_key = None
 
         self.gemini_available = bool(self.gemini_api_key)
+
+        # Auto-start Ollama if not running
+        if auto_start:
+            self._auto_start_ollama()
+
         self.ollama_available = self._check_ollama()
+
+        # If Ollama is up, auto-select first available model if default isn't installed
+        if self.ollama_available:
+            models = self.list_models()
+            model_names = [m["name"] for m in models]
+            if self.ollama_model not in model_names and model_names:
+                self.ollama_model = model_names[0]
+                logger.info(f"Default model not found, auto-selected: {self.ollama_model}")
 
         if self.gemini_available:
             logger.info("LLM Router: Gemini API configured (primary)")
         if self.ollama_available:
-            logger.info(f"LLM Router: Ollama available at {ollama_base_url} (fallback)")
+            logger.info(f"LLM Router: Ollama available, active model: {self.ollama_model}")
         if not self.gemini_available and not self.ollama_available:
             logger.warning("LLM Router: No LLM provider available!")
+
+    # ─── Ollama Management ─────────────────────────────────────────────────
+
+    def _auto_start_ollama(self) -> None:
+        """Try to start Ollama if it's not already running."""
+        if self._check_ollama():
+            logger.info("Ollama is already running")
+            return
+
+        # Find the ollama executable
+        ollama_path = shutil.which("ollama")
+        if not ollama_path:
+            # Common Windows install locations
+            for path in [
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Ollama\ollama.exe"),
+                os.path.expandvars(r"%PROGRAMFILES%\Ollama\ollama.exe"),
+                r"C:\Users\vedan\AppData\Local\Programs\Ollama\ollama.exe",
+            ]:
+                if os.path.exists(path):
+                    ollama_path = path
+                    break
+
+        if not ollama_path:
+            logger.warning("Ollama not found. Install from https://ollama.ai")
+            return
+
+        logger.info(f"Starting Ollama from: {ollama_path}")
+        try:
+            # Start ollama serve as a background process
+            self._ollama_process = subprocess.Popen(
+                [ollama_path, "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+
+            # Wait for it to be ready (up to 10 seconds)
+            for i in range(20):
+                time.sleep(0.5)
+                if self._check_ollama():
+                    logger.info(f"Ollama started successfully (PID {self._ollama_process.pid})")
+                    return
+
+            logger.warning("Ollama process started but not responding")
+
+        except Exception as e:
+            logger.warning(f"Failed to start Ollama: {e}")
 
     def _check_ollama(self) -> bool:
         """Check if Ollama is running."""
@@ -65,6 +134,45 @@ class LLMRouter:
             return r.status_code == 200
         except Exception:
             return False
+
+    def list_models(self) -> List[Dict[str, Any]]:
+        """List all installed Ollama models."""
+        try:
+            r = self._http_client.get(f"{self.ollama_base_url}/api/tags", timeout=5.0)
+            r.raise_for_status()
+            data = r.json()
+            models = []
+            for m in data.get("models", []):
+                name = m.get("name", "")
+                size_bytes = m.get("size", 0)
+                size_gb = round(size_bytes / (1024 ** 3), 1) if size_bytes else 0
+                models.append({
+                    "name": name,
+                    "size": f"{size_gb} GB",
+                    "size_bytes": size_bytes,
+                    "modified_at": m.get("modified_at", ""),
+                    "family": m.get("details", {}).get("family", ""),
+                    "parameters": m.get("details", {}).get("parameter_size", ""),
+                    "quantization": m.get("details", {}).get("quantization_level", ""),
+                    "active": name == self.ollama_model,
+                })
+            return models
+        except Exception as e:
+            logger.error(f"Failed to list models: {e}")
+            return []
+
+    def set_model(self, model_name: str) -> bool:
+        """Switch the active Ollama model."""
+        models = self.list_models()
+        model_names = [m["name"] for m in models]
+        if model_name not in model_names:
+            logger.error(f"Model '{model_name}' not found. Available: {model_names}")
+            return False
+        self.ollama_model = model_name
+        logger.info(f"Active model switched to: {model_name}")
+        return True
+
+    # ─── Generation ────────────────────────────────────────────────────────
 
     def generate(
         self,
@@ -83,6 +191,7 @@ class LLMRouter:
                 logger.warning(f"Gemini failed ({e}), trying Ollama fallback...")
 
         # Fallback to Ollama
+        self.ollama_available = self._check_ollama()
         if self.ollama_available:
             try:
                 return self._generate_ollama(prompt, system_prompt, temperature, max_tokens)
@@ -140,13 +249,25 @@ class LLMRouter:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "num_ctx": 4096,  # Ensure enough context for RAG prompts
             },
+            "keep_alive": "5m",  # Keep model loaded between requests
         }
 
         response = self._http_client.post(
             f"{self.ollama_base_url}/api/chat", json=payload
         )
-        response.raise_for_status()
+
+        # Read actual error from Ollama instead of generic HTTP error
+        if response.status_code != 200:
+            try:
+                err_data = response.json()
+                err_msg = err_data.get("error", response.text)
+            except Exception:
+                err_msg = response.text
+            logger.error(f"Ollama error ({response.status_code}): {err_msg}")
+            raise RuntimeError(f"Ollama error: {err_msg}")
+
         data = response.json()
 
         return LLMResponse(
@@ -159,11 +280,14 @@ class LLMRouter:
             },
         )
 
+    # ─── Status ────────────────────────────────────────────────────────────
+
     def health_check(self) -> Dict[str, Any]:
         """Check status of all providers."""
+        self.ollama_available = self._check_ollama()
         status = {
             "gemini": {"available": self.gemini_available},
-            "ollama": {"available": self._check_ollama()},
+            "ollama": {"available": self.ollama_available},
         }
         if status["ollama"]["available"]:
             status["ollama"]["model"] = self.ollama_model
@@ -171,5 +295,5 @@ class LLMRouter:
         return status
 
     def close(self):
-        """Clean up HTTP client."""
+        """Clean up HTTP client. Don't kill Ollama — it may be used by others."""
         self._http_client.close()

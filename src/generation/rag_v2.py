@@ -61,8 +61,8 @@ class RAGGeneratorV2:
     def generate_response(
         self,
         query: str,
-        max_chunks: int = 8,
-        max_context_chars: int = 4000,
+        max_chunks: int = 5,
+        max_context_chars: int = 2500,
         top_k: int = 10,
         conversation_context: str = "",
     ) -> RAGResult:
