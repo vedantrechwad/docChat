@@ -1,1 +1,1 @@
-# Study Companion Backend
+# DocChat Backend

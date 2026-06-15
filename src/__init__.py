@@ -1,1 +1,1 @@
-# Source package
+# DocChat - AI-powered document Q&A

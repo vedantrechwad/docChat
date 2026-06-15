@@ -39,6 +39,11 @@ class MilvusVectorDB:
             if self.client.has_collection(collection_name=self.collection_name):
                 logger.info(f"Collection '{self.collection_name}' already exists")
                 self.collection_exists = True
+                try:
+                    self.client.load_collection(collection_name=self.collection_name)
+                    logger.info(f"Collection '{self.collection_name}' loaded into memory")
+                except Exception:
+                    pass  # May not have index yet
                 return
             
             schema = self.client.create_schema(
@@ -138,7 +143,6 @@ class MilvusVectorDB:
             index_params = self.client.prepare_index_params()
             
             if use_binary_quantization:
-                # IVF_RABITQ with binary quantization
                 index_params.add_index(
                     field_name="vector",
                     index_type="IVF_RABITQ",
@@ -150,28 +154,33 @@ class MilvusVectorDB:
                         "refine_type": refine_type if enable_refine else None
                     }
                 )
-                logger.info(f"Creating IVF_RABITQ index with nlist={nlist}, refine={enable_refine}")
             else:
-                # Fallback to IVF_FLAT if BQ not supported
                 index_params.add_index(
                     field_name="vector",
                     index_type="IVF_FLAT", 
                     index_name="vector_index",
                     metric_type="L2",
-                    # params={"nlist": nlist}
                 )
-                logger.info(f"Creating IVF_FLAT index with nlist={nlist}")
             
             self.client.create_index(
                 collection_name=self.collection_name,
                 index_params=index_params
             )
-            
             logger.info("Index created successfully")
             
         except Exception as e:
-            logger.error(f"Error creating index: {str(e)}")
-            raise
+            if "already exists" in str(e):
+                logger.info("Index already exists, skipping creation")
+            else:
+                logger.error(f"Error creating index: {str(e)}")
+                raise
+        
+        # Always load collection into memory for searching
+        try:
+            self.client.load_collection(collection_name=self.collection_name)
+            logger.info(f"Collection '{self.collection_name}' loaded into memory")
+        except Exception as e:
+            logger.warning(f"Could not load collection: {e}")
     
     def insert_embeddings(self, embedded_chunks: List[EmbeddedChunk]) -> List[str]:
         if not embedded_chunks:
