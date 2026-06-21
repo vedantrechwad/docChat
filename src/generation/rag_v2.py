@@ -1,20 +1,80 @@
 """
-RAG Generator — Retrieval-Augmented Generation with citations.
+RAG Generator V2 — Advanced Retrieval-Augmented Generation.
 
-Retrieves relevant document chunks via vector search, then generates
-a cited response using the LLM router.
+Features:
+- Adaptive context window based on active LLM model
+- Notebook-isolated vector search
+- Hybrid search (BM25 keyword + vector similarity + RRF fusion)
+- HyDE query rewriting for better retrieval
+- LLM-based reranking of retrieved chunks
+- Embedding caching for repeated queries
+- Optimized prompts for both small local models and large API models
 """
 
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
+from functools import lru_cache
+
+import numpy as np
 
 from src.llm.llm_router import LLMRouter
 from src.vector_database.milvus_vector_db import MilvusVectorDB
 from src.embeddings.embedding_generator import EmbeddingGenerator
+from src.generation.hybrid_search import BM25Index, reciprocal_rank_fusion
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# ─── Context Profiles ──────────────────────────────────────────────────────────
+
+CONTEXT_PROFILES = {
+    (0, 4096): {
+        "max_context_chars": 2000,
+        "max_chunks": 3,
+        "max_tokens": 1000,
+        "top_k": 8,
+        "use_hyde": False,         # HyDE is too expensive for small models
+        "use_reranking": False,    # Reranking uses LLM tokens
+        "label": "small",
+    },
+    (4097, 8192): {
+        "max_context_chars": 4000,
+        "max_chunks": 5,
+        "max_tokens": 1500,
+        "top_k": 12,
+        "use_hyde": False,
+        "use_reranking": True,
+        "label": "medium",
+    },
+    (8193, 32768): {
+        "max_context_chars": 8000,
+        "max_chunks": 7,
+        "max_tokens": 2000,
+        "top_k": 15,
+        "use_hyde": True,
+        "use_reranking": True,
+        "label": "large",
+    },
+    (32769, float("inf")): {
+        "max_context_chars": 12000,
+        "max_chunks": 10,
+        "max_tokens": 3000,
+        "top_k": 20,
+        "use_hyde": True,
+        "use_reranking": True,
+        "label": "api",
+    },
+}
+
+
+def get_context_profile(context_size: int) -> Dict[str, Any]:
+    """Get the appropriate context profile for a given model context size."""
+    for (min_ctx, max_ctx), profile in CONTEXT_PROFILES.items():
+        if min_ctx <= context_size <= max_ctx:
+            return profile
+    return list(CONTEXT_PROFILES.values())[0]
 
 
 @dataclass
@@ -38,14 +98,15 @@ class RAGResult:
 
 
 class RAGGeneratorV2:
-    """RAG Generator using the LLM Router for provider-agnostic generation."""
+    """Advanced RAG Generator with hybrid search, HyDE, and reranking."""
 
-    SYSTEM_PROMPT = """You are an AI assistant that answers questions based on provided source material. Follow these rules:
-1. For each factual claim, include the citation reference number in square brackets [1], [2], etc.
-2. Only use information from the provided context — do not add external knowledge.
-3. If you cannot find relevant information in the context, say so clearly.
-4. Be precise and accurate in your citations.
-5. When multiple sources support the same point, list all relevant citations like [1], [2]."""
+    SYSTEM_PROMPT = """You are an AI assistant that answers questions using provided source material.
+
+Rules:
+1. Cite sources with [1], [2], etc. for each factual claim.
+2. Only use information from the provided context.
+3. If no relevant info found, say so clearly.
+4. When multiple sources support a point, list all: [1], [2]."""
 
     def __init__(
         self,
@@ -56,56 +117,210 @@ class RAGGeneratorV2:
         self.llm_router = llm_router
         self.embedding_generator = embedding_generator
         self.vector_db = vector_db
-        logger.info("RAG Generator initialized")
+        self.bm25_index = BM25Index()
+        self._embedding_cache: Dict[str, np.ndarray] = {}
+        self._cache_max_size = 100
+        logger.info("RAG Generator V2 initialized (hybrid search + adaptive context)")
+
+    def _get_adaptive_settings(self) -> Dict[str, Any]:
+        """Get context/chunking settings adaptive to the active model."""
+        ctx_size = self.llm_router.get_model_context_size()
+        profile = get_context_profile(ctx_size)
+        logger.info(f"Adaptive profile: {profile['label']} (model ctx: {ctx_size})")
+        return profile
+
+    def _get_cached_embedding(self, query: str) -> np.ndarray:
+        """Get query embedding with LRU caching."""
+        if query in self._embedding_cache:
+            return self._embedding_cache[query]
+
+        embedding = self.embedding_generator.generate_query_embedding(query)
+
+        # Evict oldest if cache is full
+        if len(self._embedding_cache) >= self._cache_max_size:
+            oldest_key = next(iter(self._embedding_cache))
+            del self._embedding_cache[oldest_key]
+
+        self._embedding_cache[query] = embedding
+        return embedding
+
+    def _hyde_rewrite(self, query: str) -> str:
+        """
+        HyDE: Hypothetical Document Embeddings.
+        Generate a hypothetical answer to use as the search query,
+        which produces better embeddings than the raw question.
+        """
+        try:
+            response = self.llm_router.generate(
+                prompt=f"Write a short factual paragraph that would answer this question: {query}",
+                system_prompt="You are a helpful assistant. Write a brief, factual paragraph as if answering from a document. Be specific and use technical terms.",
+                temperature=0.3,
+                max_tokens=200,
+            )
+            hyde_text = response.content.strip()
+            if hyde_text and len(hyde_text) > 20:
+                logger.info(f"HyDE rewrite: '{query[:50]}...' -> '{hyde_text[:80]}...'")
+                return hyde_text
+        except Exception as e:
+            logger.warning(f"HyDE rewrite failed: {e}")
+
+        return query  # Fallback to original query
+
+    def _rerank_chunks(
+        self, query: str, chunks: List[Dict[str, Any]], top_n: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Use the LLM to rerank retrieved chunks by relevance.
+        Scores each chunk on a 1-10 scale and re-orders.
+        """
+        if len(chunks) <= top_n:
+            return chunks
+
+        try:
+            # Build a compact scoring prompt
+            chunk_descriptions = []
+            for i, chunk in enumerate(chunks[:15]):  # Limit to avoid token overflow
+                preview = chunk["content"][:200].replace("\n", " ")
+                chunk_descriptions.append(f"[{i}] {preview}")
+
+            chunks_text = "\n".join(chunk_descriptions)
+
+            response = self.llm_router.generate(
+                prompt=f"Question: {query}\n\nRank these text passages by relevance (most relevant first). Return ONLY a comma-separated list of passage numbers, e.g.: 3,1,5,0,2\n\n{chunks_text}",
+                system_prompt="You are a relevance ranker. Return ONLY comma-separated passage numbers ordered by relevance. No explanation.",
+                temperature=0.0,
+                max_tokens=100,
+            )
+
+            # Parse the ranking
+            ranking_text = response.content.strip()
+            # Extract numbers from the response
+            import re
+            numbers = re.findall(r'\d+', ranking_text)
+            ranked_indices = []
+            for n in numbers:
+                idx = int(n)
+                if 0 <= idx < len(chunks) and idx not in ranked_indices:
+                    ranked_indices.append(idx)
+
+            if ranked_indices:
+                reranked = [chunks[i] for i in ranked_indices[:top_n]]
+                # Add any chunks that weren't ranked (in case LLM missed some)
+                for i, chunk in enumerate(chunks):
+                    if i not in ranked_indices and len(reranked) < top_n:
+                        reranked.append(chunk)
+                logger.info(f"Reranked {len(chunks)} chunks -> top {len(reranked)}")
+                return reranked
+
+        except Exception as e:
+            logger.warning(f"Reranking failed: {e}")
+
+        return chunks[:top_n]
+
+    def _build_bm25_from_vector_results(
+        self, vector_results: List[Dict[str, Any]]
+    ) -> None:
+        """Build BM25 index from vector search results for hybrid fusion."""
+        docs = []
+        for r in vector_results:
+            docs.append({
+                "id": r["id"],
+                "content": r["content"],
+                "score": r["score"],
+                "citation": r["citation"],
+                "metadata": r.get("metadata", {}),
+                "embedding_model": r.get("embedding_model", ""),
+            })
+        self.bm25_index.build_index(docs)
 
     def generate_response(
         self,
         query: str,
-        max_chunks: int = 5,
-        max_context_chars: int = 2500,
-        top_k: int = 10,
+        notebook_id: Optional[int] = None,
         conversation_context: str = "",
     ) -> RAGResult:
-        """Generate a cited response using RAG."""
+        """Generate a cited response using advanced RAG pipeline."""
 
         if not query.strip():
-            return RAGResult(query=query, response="Please provide a question.", sources_used=[], retrieval_count=0)
+            return RAGResult(
+                query=query, response="Please provide a question.",
+                sources_used=[], retrieval_count=0,
+            )
 
         try:
-            # 1. Retrieve relevant chunks
-            query_vector = self.embedding_generator.generate_query_embedding(query)
-            search_results = self.vector_db.search(query_vector=query_vector.tolist(), limit=top_k)
+            settings = self._get_adaptive_settings()
+            max_chunks = settings["max_chunks"]
+            max_context_chars = settings["max_context_chars"]
+            max_tokens = settings["max_tokens"]
+            top_k = settings["top_k"]
+            use_hyde = settings["use_hyde"]
+            use_reranking = settings["use_reranking"]
 
-            if not search_results:
+            # ── Step 1: Query processing ───────────────────────────────
+            search_query = query
+            if use_hyde:
+                search_query = self._hyde_rewrite(query)
+
+            # ── Step 2: Vector search (notebook-isolated) ──────────────
+            query_vector = self._get_cached_embedding(search_query)
+            vector_results = self.vector_db.search(
+                query_vector=query_vector.tolist(),
+                limit=top_k,
+                notebook_id=notebook_id,
+            )
+
+            if not vector_results:
                 return RAGResult(
                     query=query,
                     response="I couldn't find any relevant information in the available documents to answer your question.",
-                    sources_used=[],
-                    retrieval_count=0,
+                    sources_used=[], retrieval_count=0,
                 )
 
-            # 2. Format context with citations
-            context, sources_info = self._format_context(search_results, max_chunks, max_context_chars)
+            # ── Step 3: Hybrid search (BM25 + RRF) ─────────────────────
+            try:
+                self._build_bm25_from_vector_results(vector_results)
+                if self.bm25_index.is_ready:
+                    bm25_results = self.bm25_index.search(query, k=top_k)
+                    if bm25_results:
+                        merged = reciprocal_rank_fusion(
+                            vector_results, bm25_results, self.bm25_index
+                        )
+                        vector_results = merged
+                        logger.info(f"Hybrid search: {len(merged)} fused results")
+            except Exception as e:
+                logger.warning(f"BM25 hybrid search failed (falling back to vector only): {e}")
 
-            # 3. Build prompt
+            # ── Step 4: Reranking ──────────────────────────────────────
+            if use_reranking and len(vector_results) > max_chunks:
+                vector_results = self._rerank_chunks(query, vector_results, max_chunks)
+
+            # ── Step 5: Format context with citations ──────────────────
+            context, sources_info = self._format_context(
+                vector_results, max_chunks, max_context_chars
+            )
+
+            # ── Step 6: Build prompt and generate ──────────────────────
             prompt = self._build_prompt(query, context, conversation_context)
 
-            # 4. Generate response
             llm_response = self.llm_router.generate(
                 prompt=prompt,
                 system_prompt=self.SYSTEM_PROMPT,
                 temperature=0.1,
-                max_tokens=2000,
+                max_tokens=max_tokens,
             )
 
             result = RAGResult(
                 query=query,
                 response=llm_response.content,
                 sources_used=sources_info,
-                retrieval_count=len(search_results),
+                retrieval_count=len(vector_results),
             )
 
-            logger.info(f"Response generated with {len(sources_info)} sources via {llm_response.provider}/{llm_response.model}")
+            logger.info(
+                f"Response generated with {len(sources_info)} sources "
+                f"via {llm_response.provider}/{llm_response.model} "
+                f"(profile: {settings['label']}, hyde: {use_hyde}, rerank: {use_reranking})"
+            )
             return result
 
         except Exception as e:
@@ -113,8 +328,7 @@ class RAGGeneratorV2:
             return RAGResult(
                 query=query,
                 response=f"I encountered an error while processing your question: {str(e)}",
-                sources_used=[],
-                retrieval_count=0,
+                sources_used=[], retrieval_count=0,
             )
 
     def _format_context(
@@ -127,7 +341,7 @@ class RAGGeneratorV2:
         total_chars = 0
 
         for i, result in enumerate(search_results[:max_chunks]):
-            citation = result["citation"]
+            citation = result.get("citation", {})
             ref = f"[{i + 1}]"
             chunk_text = f"{ref} {result['content']}"
 
@@ -142,15 +356,15 @@ class RAGGeneratorV2:
                 "source_file": citation.get("source_file", "Unknown"),
                 "source_type": citation.get("source_type", "unknown"),
                 "page_number": citation.get("page_number"),
-                "chunk_id": result["id"],
-                "relevance_score": result["score"],
-                "text": result["content"][:300],  # Source text for citation hover
+                "chunk_id": result.get("id", ""),
+                "relevance_score": result.get("score", result.get("rrf_score", 0)),
+                "text": result["content"][:300],
             })
 
         return "\n\n".join(context_parts), sources_info
 
     def _build_prompt(self, query: str, context: str, conversation_context: str = "") -> str:
-        """Build the RAG prompt."""
+        """Build the RAG prompt — kept concise for small models."""
         conv_section = ""
         if conversation_context:
             conv_section = f"\nPREVIOUS CONVERSATION:\n{conversation_context}\n"

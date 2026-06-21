@@ -188,7 +188,8 @@ class DocumentProcessor:
                 chunks.append(chunk)
                 chunk_index += 1
             
-            start = max(start + self.chunk_size - self.chunk_overlap, end)
+            # Advance: always move forward from end, with overlap
+            start = max(end - self.chunk_overlap, start + 1)
             if start >= len(text):
                 break
         

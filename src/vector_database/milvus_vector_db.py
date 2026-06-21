@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import List, Dict, Any, Optional
 import json
 
@@ -91,6 +92,11 @@ class MilvusVectorDB:
             )
             
             schema.add_field(
+                field_name="notebook_id",
+                datatype=DataType.INT32
+            )
+
+            schema.add_field(
                 field_name="chunk_index",
                 datatype=DataType.INT32
             )
@@ -182,32 +188,32 @@ class MilvusVectorDB:
         except Exception as e:
             logger.warning(f"Could not load collection: {e}")
     
-    def insert_embeddings(self, embedded_chunks: List[EmbeddedChunk]) -> List[str]:
+    def insert_embeddings(self, embedded_chunks: List[EmbeddedChunk], notebook_id: int = 1) -> List[str]:
         if not embedded_chunks:
             return []
         try:
             data = []
             for embedded_chunk in embedded_chunks:
-                chunk_data = embedded_chunk.to_vector_db_format()  
+                chunk_data = embedded_chunk.to_vector_db_format()
+                # Add timestamp to chunk ID to prevent duplicates on re-upload
+                chunk_data['id'] = f"{chunk_data['id']}_{int(time.time() * 1000)}"
                 chunk_data['page_number'] = chunk_data['page_number'] or -1
                 chunk_data['start_char'] = chunk_data['start_char'] or -1
                 chunk_data['end_char'] = chunk_data['end_char'] or -1
-                
-                if isinstance(chunk_data['metadata'], dict):
-                    chunk_data['metadata'] = chunk_data['metadata']
-                
+                chunk_data['notebook_id'] = notebook_id
+
                 data.append(chunk_data)
-            
+
             self.client.insert(
                 collection_name=self.collection_name,
                 data=data
             )
-            
+
             inserted_ids = [item['id'] for item in data]
-            logger.info(f"Inserted {len(inserted_ids)} embeddings into database")
-            
+            logger.info(f"Inserted {len(inserted_ids)} embeddings into database (notebook {notebook_id})")
+
             return inserted_ids
-            
+
         except Exception as e:
             logger.error(f"Error inserting embeddings: {str(e)}")
             raise
@@ -220,6 +226,7 @@ class MilvusVectorDB:
         rbq_query_bits: int = 0,
         refine_k: float = 1.0,
         filter_expr: Optional[str] = None,
+        notebook_id: Optional[int] = None,
         use_binary_quantization: bool = False
     ) -> List[Dict[str, Any]]:
         try:
@@ -237,7 +244,16 @@ class MilvusVectorDB:
                         "nprobe": nprobe
                     }
                 }
-            
+
+            # Build filter expression with notebook isolation
+            final_filter = filter_expr
+            if notebook_id is not None:
+                nb_filter = f"notebook_id == {notebook_id}"
+                if final_filter:
+                    final_filter = f"({final_filter}) and ({nb_filter})"
+                else:
+                    final_filter = nb_filter
+
             # Perform vector similarity search
             results = self.client.search(
                 collection_name=self.collection_name,
@@ -245,13 +261,14 @@ class MilvusVectorDB:
                 anns_field="vector",
                 limit=limit,
                 search_params=search_params,
-                filter=filter_expr,
+                filter=final_filter,
                 output_fields=[
                     "content", "source_file", "source_type", "page_number",
-                    "chunk_index", "start_char", "end_char", "metadata", "embedding_model"
+                    "chunk_index", "start_char", "end_char", "metadata", "embedding_model",
+                    "notebook_id"
                 ]
             )
-            
+
             formatted_results = []
             if results and len(results) > 0:
                 for result in results[0]:
@@ -271,10 +288,10 @@ class MilvusVectorDB:
                         'embedding_model': result['entity']['embedding_model']
                     }
                     formatted_results.append(formatted_result)
-            
+
             logger.info(f"Search completed: {len(formatted_results)} results found")
             return formatted_results
-            
+
         except Exception as e:
             logger.error(f"Error during search: {str(e)}")
             raise
@@ -292,6 +309,35 @@ class MilvusVectorDB:
             logger.error(f"Error deleting collection: {str(e)}")
             raise
     
+    def delete_by_source(self, source_file: str, notebook_id: Optional[int] = None) -> int:
+        """Delete all vectors for a given source file."""
+        try:
+            filter_expr = f'source_file == "{source_file}"'
+            if notebook_id is not None:
+                filter_expr += f' and notebook_id == {notebook_id}'
+            self.client.delete(
+                collection_name=self.collection_name,
+                filter=filter_expr,
+            )
+            logger.info(f"Deleted vectors for source: {source_file}")
+            return 1
+        except Exception as e:
+            logger.error(f"Error deleting vectors for source {source_file}: {e}")
+            return 0
+
+    def delete_by_notebook(self, notebook_id: int) -> int:
+        """Delete all vectors for a given notebook."""
+        try:
+            self.client.delete(
+                collection_name=self.collection_name,
+                filter=f'notebook_id == {notebook_id}',
+            )
+            logger.info(f"Deleted all vectors for notebook {notebook_id}")
+            return 1
+        except Exception as e:
+            logger.error(f"Error deleting vectors for notebook {notebook_id}: {e}")
+            return 0
+
     def get_chunk_by_id(self, chunk_id: str) -> Optional[Dict[str, Any]]:
         try:
             if not self.collection_exists:

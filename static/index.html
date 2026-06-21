@@ -218,6 +218,61 @@
         .note-selector-item { padding: 0.375rem 0.625rem; border-radius: 5px; font-size: 0.75rem; cursor: pointer; color: var(--text-secondary); }
         .note-selector-item:hover { background: var(--accent-glow); color: var(--accent); }
         .note-selector-new { color: var(--accent); border-top: 1px solid var(--border); margin-top: 0.25rem; padding-top: 0.5rem; }
+
+        /* ─── New Feature Styles ──────────── */
+        .chat-toolbar { display: flex; gap: 0.375rem; padding: 0 2rem 0.5rem; flex-shrink: 0; flex-wrap: wrap; }
+        .chat-tool-btn { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.6875rem; padding: 0.25rem 0.625rem; border-radius: 1rem; cursor: pointer; transition: all 0.15s; font-family: inherit; display: inline-flex; align-items: center; gap: 0.25rem; }
+        .chat-tool-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-glow); }
+
+        .source-viewer-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
+        .source-viewer-overlay.active { display: flex; }
+        .source-viewer { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 700px; max-height: 80vh; display: flex; flex-direction: column; box-shadow: var(--shadow); }
+        .source-viewer-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); }
+        .source-viewer-header h3 { font-size: 0.9375rem; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .source-viewer-body { flex: 1; overflow-y: auto; padding: 1.5rem; }
+        .source-chunk { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem; margin-bottom: 0.75rem; font-size: 0.8125rem; line-height: 1.7; color: var(--text-primary); }
+        .source-chunk-meta { font-size: 0.6875rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+
+        .search-results-panel { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 600px; max-height: 70vh; z-index: 1001; box-shadow: var(--shadow); flex-direction: column; }
+        .search-results-panel.active { display: flex; }
+        .search-results-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.75rem; }
+        .search-results-header input { flex: 1; }
+        .search-results-body { flex: 1; overflow-y: auto; padding: 1rem 1.5rem; }
+        .search-result-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.875rem; margin-bottom: 0.5rem; cursor: default; }
+        .search-result-item:hover { border-color: var(--border-hover); }
+        .search-result-source { font-size: 0.6875rem; color: var(--accent); font-weight: 500; margin-bottom: 0.25rem; }
+        .search-result-text { font-size: 0.8125rem; color: var(--text-primary); line-height: 1.5; }
+        .search-result-score { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+        .summary-panel { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 700px; max-height: 80vh; z-index: 1001; box-shadow: var(--shadow); flex-direction: column; }
+        .summary-panel.active { display: flex; }
+        .summary-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.5rem; }
+        .summary-header h3 { flex: 1; font-size: 0.9375rem; font-weight: 600; }
+        .summary-body { flex: 1; overflow-y: auto; padding: 1.5rem; font-size: 0.875rem; line-height: 1.8; }
+        .summary-body h1, .summary-body h2, .summary-body h3 { color: var(--accent); margin: 1rem 0 0.5rem; }
+        .summary-body ul, .summary-body ol { padding-left: 1.5rem; }
+        .summary-body li { margin-bottom: 0.25rem; }
+        .summary-body strong { color: var(--text-primary); }
+        .summary-body table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        .summary-body th, .summary-body td { border: 1px solid var(--border); padding: 0.5rem; font-size: 0.8125rem; text-align: left; }
+        .summary-body th { background: var(--bg-card); color: var(--accent); }
+
+        /* Markdown in chat bubbles */
+        .msg-bubble h1, .msg-bubble h2, .msg-bubble h3 { margin: 0.75rem 0 0.375rem; font-size: 0.9375rem; color: var(--accent); }
+        .msg-bubble h1 { font-size: 1.0625rem; }
+        .msg-bubble ul, .msg-bubble ol { padding-left: 1.5rem; margin: 0.375rem 0; }
+        .msg-bubble li { margin-bottom: 0.125rem; }
+        .msg-bubble pre { background: var(--bg-input); padding: 0.75rem; border-radius: var(--radius-sm); overflow-x: auto; margin: 0.5rem 0; }
+        .msg-bubble pre code { font-size: 0.75rem; }
+        .msg-bubble code { background: var(--bg-input); padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.8125rem; }
+        .msg-bubble table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+        .msg-bubble th, .msg-bubble td { border: 1px solid var(--border); padding: 0.375rem 0.5rem; font-size: 0.8125rem; }
+        .msg-bubble th { background: var(--bg-card); }
+        .msg-bubble blockquote { border-left: 3px solid var(--accent); padding-left: 0.75rem; margin: 0.5rem 0; color: var(--text-secondary); }
+
+        /* Streaming typing */
+        .msg-streaming .msg-bubble::after { content: '▊'; animation: blink 1s step-end infinite; color: var(--accent); }
+        @keyframes blink { 50% { opacity: 0; } }
     </style>
 </head>
 <body>
@@ -232,10 +287,11 @@
             <div class="sidebar-section-title">Sources <span id="sourceCount" style="font-weight:400">0</span></div>
         </div>
         <div style="padding:0 0.75rem; overflow-y:auto; max-height:180px;" id="sourceList"></div>
-        <div style="padding:0.25rem 0.75rem; display:flex; gap:0.25rem;">
+        <div style="padding:0.25rem 0.75rem; display:flex; gap:0.25rem; flex-wrap:wrap;">
             <button class="sidebar-add" onclick="openModal('upload')">📄 File</button>
             <button class="sidebar-add" onclick="openModal('url')">🌐 URL</button>
             <button class="sidebar-add" onclick="openModal('youtube')">🎥 YT</button>
+            <button class="sidebar-add" onclick="openModal('clipboard')" title="Paste text as source">📋 Paste</button>
         </div>
         <div class="model-section">
             <div class="model-label">🤖 AI Model</div>
@@ -257,6 +313,13 @@
                     <div class="chat-empty"><div class="chat-empty-icon">💬</div><h3>Ask anything about your documents</h3><p>Upload sources, then ask questions for cited answers.</p></div>
                 </div>
                 <div class="chat-input-area">
+                    <div class="chat-toolbar">
+                        <button class="chat-tool-btn" onclick="generateSummary()" title="Generate study guide from all sources">📊 Summary</button>
+                        <button class="chat-tool-btn" onclick="openSearchPanel()" title="Search across all sources">🔍 Search</button>
+                        <button class="chat-tool-btn" onclick="openCompareModal()" title="Compare sources">⚖️ Compare</button>
+                        <button class="chat-tool-btn" onclick="exportChat()" title="Export chat history">💾 Export</button>
+                        <button class="chat-tool-btn" onclick="clearChatHistory()" title="Clear chat">🗑 Clear</button>
+                    </div>
                     <div class="followup-bar" id="followupBar">
                         <div class="followup-label">Replying to</div>
                         <span id="followupText"></span>
@@ -374,7 +437,52 @@
     </div>
 </div>
 
+<!-- Clipboard Modal -->
+<div class="modal-overlay" id="modal-clipboard">
+    <div class="modal">
+        <h3>📋 Paste Text <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div class="input-group"><label class="input-label">Title</label><input type="text" class="input" id="clipboardTitle" placeholder="e.g. Lecture Notes"></div>
+        <div class="input-group"><label class="input-label">Text Content</label><textarea class="input" id="clipboardText" rows="6" placeholder="Paste your text here..."></textarea></div>
+        <button class="btn btn-primary" style="width:100%" onclick="handleClipboardSubmit()">Add as Source</button><div id="clipboardStatus"></div>
+    </div>
+</div>
+
+<!-- Source Viewer -->
+<div class="source-viewer-overlay" id="sourceViewerOverlay" onclick="if(event.target===this)closeSourceViewer()">
+    <div class="source-viewer">
+        <div class="source-viewer-header">
+            <h3 id="sourceViewerTitle">Source</h3>
+            <button class="btn btn-sm" onclick="closeSourceViewer()">&times; Close</button>
+        </div>
+        <div class="source-viewer-body" id="sourceViewerBody"></div>
+    </div>
+</div>
+
+<!-- Search Panel -->
+<div class="search-results-panel" id="searchPanel">
+    <div class="search-results-header">
+        <span style="font-size:1rem">🔍</span>
+        <input type="text" class="input" id="searchInput" placeholder="Search across all sources..." onkeydown="if(event.key==='Enter')doSearch()">
+        <button class="btn btn-sm btn-primary" onclick="doSearch()">Search</button>
+        <button class="modal-close" onclick="closeSearchPanel()">&times;</button>
+    </div>
+    <div class="search-results-body" id="searchResults"><div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.8125rem">Type a query and press Enter</div></div>
+</div>
+
+<!-- Summary Panel -->
+<div class="summary-panel" id="summaryPanel">
+    <div class="summary-header">
+        <span style="font-size:1rem">📊</span>
+        <h3>Study Guide / Summary</h3>
+        <button class="btn btn-sm" onclick="copySummary()">📋 Copy</button>
+        <button class="modal-close" onclick="closeSummaryPanel()">&times;</button>
+    </div>
+    <div class="summary-body" id="summaryBody"><div style="text-align:center;padding:3rem;color:var(--text-muted)">Click "Generate Summary" to create a study guide from your sources.</div></div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
 <script>
 const API = '';
 let activeNotebookId = null, notebooks = [], sources = [], chatHistory = [], notes = [], currentNoteId = null, isLoading = false, quill = null, currentSpeech = null;
@@ -555,8 +663,20 @@ async function deleteNotebook(id) { if (!confirm('Delete this notebook?')) retur
 // ─── Models ────────────────────────────────────────
 async function loadModels() {
     try { const res = await fetch(`${API}/api/models`); const data = await res.json(); const sel = document.getElementById('modelSelect'); const st = document.getElementById('modelStatus');
-        if (data.ollama_available && data.models.length) { sel.innerHTML = data.models.map(m => `<option value="${m.name}" ${m.active?'selected':''}>${m.name} (${m.size})</option>`).join(''); st.className='model-status online'; st.textContent='● Connected'; }
-        else { sel.innerHTML='<option>Ollama offline</option>'; st.className='model-status offline'; st.textContent='○ Not running'; }
+        let options = '';
+        // Show Gemini as primary if available
+        if (data.gemini_available && data.gemini) {
+            options += `<option value="gemini-2.5-flash" ${data.active_provider==='gemini'?'selected':''}>✨ Gemini 2.5 Flash (API)</option>`;
+        }
+        if (data.ollama_available && data.models.length) {
+            options += data.models.map(m => `<option value="${m.name}" ${m.active&&data.active_provider==='ollama'?'selected':''}>${m.name} (${m.size})</option>`).join('');
+        }
+        if (options) {
+            sel.innerHTML = options;
+            st.className='model-status online'; st.textContent=`● ${data.active_provider === 'gemini' ? 'Gemini API' : 'Ollama'} active`;
+        } else {
+            sel.innerHTML='<option>No models available</option>'; st.className='model-status offline'; st.textContent='○ Not configured';
+        }
     } catch { document.getElementById('modelStatus').className='model-status offline'; document.getElementById('modelStatus').textContent='○ Error'; }
 }
 async function selectModel(m) { if (!m) return; await fetch(`${API}/api/models/select`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:m})}); }
@@ -568,8 +688,9 @@ function renderSources() {
     document.getElementById('sourceCount').textContent = sources.length;
     const el = document.getElementById('sourceList');
     if (!sources.length) { el.innerHTML='<div style="padding:0.5rem;font-size:0.6875rem;color:var(--text-muted);text-align:center">No sources yet</div>'; return; }
-    el.innerHTML = sources.map(s => { const ic=s.type==='Website'?'web':s.type==='YouTube'?'yt':'doc'; const em=s.type==='Website'?'🌐':s.type==='YouTube'?'🎥':'📄';
-        return `<div class="src-item"><div class="src-icon src-icon-${ic}">${em}</div><span class="src-name" title="${esc(s.name)}">${esc(s.name)}</span><button class="src-del" onclick="deleteSource(${s.id})">✕</button></div>`;
+    el.innerHTML = sources.map(s => { const ic=s.type==='Website'?'web':s.type==='YouTube'?'yt':s.type==='Clipboard'?'doc':'doc'; const em=s.type==='Website'?'🌐':s.type==='YouTube'?'🎥':s.type==='Clipboard'?'📋':'📄';
+        const refreshBtn = (s.type==='Website'||s.type==='YouTube') ? `<button class="src-del" onclick="event.stopPropagation();refreshSource(${s.id})" title="Refresh" style="color:var(--accent)">↻</button>` : '';
+        return `<div class="src-item" onclick="viewSource(${s.id},'${esc(s.name).replace(/'/g,"\\'")}')" style="cursor:pointer"><div class="src-icon src-icon-${ic}">${em}</div><span class="src-name" title="${esc(s.name)}">${esc(s.name)}</span>${refreshBtn}<button class="src-del" onclick="event.stopPropagation();deleteSource(${s.id})">✕</button></div>`;
     }).join('');
 }
 async function deleteSource(id) { await fetch(`${API}/api/sources/${id}`,{method:'DELETE'}); await loadSources(); }
@@ -598,10 +719,83 @@ async function sendMessage(e) {
     renderChat(); input.value=''; isLoading=true; document.getElementById('sendBtn').disabled=true;
     const msgs=document.getElementById('chatMessages');
     const ld=document.createElement('div'); ld.className='msg-loading'; ld.innerHTML='<div class="loading-dots"><span></span><span></span><span></span></div>&nbsp; Thinking...'; msgs.appendChild(ld); msgs.scrollTop=msgs.scrollHeight;
-    try { const r=await fetch(`${API}/api/chat`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query,notebook_id:activeNotebookId})}); const d=await r.json();
-        chatHistory.push({role:'assistant',content:d.response,sources:d.sources_used||[]});
-    } catch(err) { chatHistory.push({role:'assistant',content:`Error: ${err.message}`,sources:[]}); }
-    finally { isLoading=false; document.getElementById('sendBtn').disabled=false; renderChat(); }
+
+    try {
+        // Try streaming first
+        const r = await fetch(`${API}/api/chat/stream`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query, notebook_id: activeNotebookId})
+        });
+
+        if (r.ok && r.headers.get('content-type')?.includes('text/event-stream')) {
+            // Stream the response
+            const reader = r.body.getReader();
+            const decoder = new TextDecoder();
+            let streamedContent = '';
+            let streamSources = [];
+
+            // Remove loading indicator and add streaming message
+            ld.remove();
+            const streamDiv = document.createElement('div');
+            streamDiv.className = 'msg msg-assistant msg-streaming';
+            streamDiv.innerHTML = '<div class="msg-bubble"></div>';
+            msgs.appendChild(streamDiv);
+            const bubble = streamDiv.querySelector('.msg-bubble');
+
+            let buffer = '';
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, {stream: true});
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.type === 'sources') {
+                                streamSources = data.sources_used || [];
+                            } else if (data.type === 'token') {
+                                streamedContent += data.content;
+                                bubble.innerHTML = formatResponse(streamedContent, streamSources);
+                                msgs.scrollTop = msgs.scrollHeight;
+                            } else if (data.type === 'done') {
+                                // Finalize
+                                streamDiv.classList.remove('msg-streaming');
+                            }
+                        } catch {}
+                    }
+                }
+            }
+
+            // Add source tags and action buttons
+            if (streamSources.length) {
+                const uniq = [...new Map(streamSources.map(s=>[s.source_file,s])).values()];
+                bubble.innerHTML += `<div class="msg-sources">${uniq.map(s=>`<span class="msg-source-tag">${esc(s.source_file)}</span>`).join('')}</div>`;
+            }
+            const idx = chatHistory.length;
+            chatHistory.push({role:'assistant', content:streamedContent, sources:streamSources});
+            streamDiv.innerHTML += `<div class="msg-actions"><button class="msg-action-btn" onclick="speakText(this,${idx})" title="Read aloud">🔊</button><button class="msg-action-btn" onclick="showNoteSelector(event,${idx})" title="Save to note">📝 Note</button></div>`;
+
+        } else {
+            // Fallback to non-streaming
+            const d = await r.json();
+            chatHistory.push({role:'assistant',content:d.response,sources:d.sources_used||[]});
+            renderChat();
+        }
+    } catch(err) {
+        chatHistory.push({role:'assistant',content:`Error: ${err.message}`,sources:[]});
+        renderChat();
+    } finally {
+        isLoading=false; document.getElementById('sendBtn').disabled=false;
+        // Remove loading indicator if still present
+        const loader = msgs.querySelector('.msg-loading');
+        if (loader) loader.remove();
+        msgs.scrollTop = msgs.scrollHeight;
+    }
 }
 
 // ─── TTS ───────────────────────────────────────────
@@ -655,43 +849,236 @@ window._citationData = {};
 let _citationCounter = 0;
 
 function formatResponse(text, sources) {
-    let html = esc(text);
-    html = html.replace(/\[(\d+)\]/g, (match, num) => {
+    // First handle citations in raw text before markdown parsing
+    let processed = text;
+    // Replace citation refs [1], [2] with placeholder spans
+    const citationMap = {};
+    processed = processed.replace(/\[(\d+)\]/g, (match, num) => {
         const idx = parseInt(num) - 1;
         const src = sources?.[idx];
         const cid = 'c' + (++_citationCounter);
         if (src) {
             window._citationData[cid] = { file: src.source_file || 'Unknown', page: src.page_number, text: src.text || '' };
-            return `<span class="citation-ref" data-cid="${cid}" onmouseenter="showCitation(event,'${cid}')" onmouseleave="hideCitation()">${num}</span>`;
+            citationMap[`%%CITE_${cid}%%`] = `<span class="citation-ref" data-cid="${cid}" onmouseenter="showCitation(event,'${cid}')" onmouseleave="hideCitation()">${num}</span>`;
+            return `%%CITE_${cid}%%`;
         }
-        return `<span class="citation-ref">${num}</span>`;
+        citationMap[`%%CITEBARE_${num}%%`] = `<span class="citation-ref">${num}</span>`;
+        return `%%CITEBARE_${num}%%`;
     });
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+
+    // Parse markdown with marked.js
+    let html = '';
+    try {
+        if (typeof marked !== 'undefined') {
+            html = marked.parse(processed, { breaks: true, gfm: true });
+        } else {
+            html = esc(processed).split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+        }
+    } catch {
+        html = esc(processed).split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+    }
+
+    // Sanitize HTML
+    if (typeof DOMPurify !== 'undefined') {
+        html = DOMPurify.sanitize(html, { ADD_ATTR: ['onmouseenter', 'onmouseleave', 'data-cid'] });
+    }
+
+    // Restore citation spans
+    for (const [placeholder, span] of Object.entries(citationMap)) {
+        html = html.replaceAll(placeholder, span);
+    }
+
     return html;
 }
 
-function showCitation(event, cid) {
-    const data = window._citationData[cid];
-    if (!data) return;
-    const tt = document.getElementById('citationTooltip');
-    document.getElementById('ctHeader').textContent = data.file + (data.page ? ' · Page ' + data.page : '');
-    document.getElementById('ctText').textContent = data.text || 'Source text not available';
-    const rect = event.target.getBoundingClientRect();
-    // Position above the citation badge
-    tt.style.left = Math.max(8, Math.min(rect.left - 140, window.innerWidth - 360)) + 'px';
-    tt.style.top = Math.max(8, rect.top - 210) + 'px';
-    tt.classList.add('visible');
-}
+
 
 function hideCitation() {
     document.getElementById('citationTooltip').classList.remove('visible');
 }
 function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
-function openModal(type) { closeModals(); document.getElementById(`modal-${type}`).classList.add('active'); ['uploadStatus','urlStatus','youtubeStatus'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML='';}); }
+function openModal(type) { closeModals(); document.getElementById(`modal-${type}`).classList.add('active'); ['uploadStatus','urlStatus','youtubeStatus','clipboardStatus'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML='';}); }
 function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('active')); }
 function setupDragDrop() { const d=document.getElementById('fileDrop'); if(!d)return; d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('dragover');}); d.addEventListener('dragleave',()=>d.classList.remove('dragover')); d.addEventListener('drop',e=>{e.preventDefault();d.classList.remove('dragover');if(e.dataTransfer.files.length)handleFileUpload(e.dataTransfer.files);}); }
+
+// ─── Source Viewer ─────────────────────────────────────────
+async function viewSource(sourceId, sourceName) {
+    document.getElementById('sourceViewerTitle').textContent = sourceName;
+    document.getElementById('sourceViewerBody').innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted)">Loading...</div>';
+    document.getElementById('sourceViewerOverlay').classList.add('active');
+    try {
+        const r = await fetch(`${API}/api/sources/${sourceId}/content?notebook_id=${activeNotebookId}`);
+        const d = await r.json();
+        if (d.chunks && d.chunks.length) {
+            document.getElementById('sourceViewerBody').innerHTML = d.chunks.map((c, i) => {
+                const meta = c.page_number ? `Page ${c.page_number} • ` : '';
+                return `<div class="source-chunk"><div class="source-chunk-meta">${meta}Chunk ${c.chunk_index + 1}</div>${esc(c.content)}</div>`;
+            }).join('');
+        } else {
+            document.getElementById('sourceViewerBody').innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted)">No content found</div>';
+        }
+    } catch(e) {
+        document.getElementById('sourceViewerBody').innerHTML = `<div style="text-align:center;padding:2rem;color:var(--accent-red)">Error: ${e.message}</div>`;
+    }
+}
+function closeSourceViewer() { document.getElementById('sourceViewerOverlay').classList.remove('active'); }
+
+// ─── Full-Text Search ──────────────────────────────────────
+function openSearchPanel() {
+    document.getElementById('searchPanel').classList.add('active');
+    document.getElementById('searchInput').focus();
+}
+function closeSearchPanel() { document.getElementById('searchPanel').classList.remove('active'); }
+async function doSearch() {
+    const q = document.getElementById('searchInput').value.trim();
+    if (!q) return;
+    const body = document.getElementById('searchResults');
+    body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted)">Searching...</div>';
+    try {
+        const r = await fetch(`${API}/api/search`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({query:q, notebook_id:activeNotebookId})});
+        const d = await r.json();
+        if (d.results && d.results.length) {
+            body.innerHTML = d.results.map(r => `<div class="search-result-item">
+                <div class="search-result-source">${esc(r.source_file)} ${r.page_number ? '• Page '+r.page_number : ''}</div>
+                <div class="search-result-text">${esc(r.content)}</div>
+                <div class="search-result-score">Relevance: ${(r.score*100).toFixed(1)}%</div>
+            </div>`).join('');
+        } else {
+            body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted)">No results found</div>';
+        }
+    } catch(e) {
+        body.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--accent-red)">Error: ${e.message}</div>`;
+    }
+}
+
+// ─── Auto-Summary ────────────────────────────────────────
+let _summaryRawText = '';
+async function generateSummary() {
+    if (!sources.length) { alert('Add sources first'); return; }
+    document.getElementById('summaryPanel').classList.add('active');
+    document.getElementById('summaryBody').innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-muted)"><div class="loading-dots" style="display:inline-flex;gap:0.25rem"><span></span><span></span><span></span></div><p style="margin-top:0.5rem">Generating study guide...</p></div>';
+    try {
+        const r = await fetch(`${API}/api/summary`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({notebook_id:activeNotebookId})});
+        const d = await r.json();
+        _summaryRawText = d.summary || '';
+        let html = '';
+        try { html = typeof marked !== 'undefined' ? marked.parse(_summaryRawText, {breaks:true, gfm:true}) : esc(_summaryRawText); } catch { html = esc(_summaryRawText); }
+        if (typeof DOMPurify !== 'undefined') html = DOMPurify.sanitize(html);
+        document.getElementById('summaryBody').innerHTML = html + `<div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);font-size:0.75rem;color:var(--text-muted)">Generated by ${d.model || 'AI'} • Sources: ${(d.sources_used||[]).join(', ')}</div>`;
+    } catch(e) {
+        document.getElementById('summaryBody').innerHTML = `<div style="text-align:center;padding:3rem;color:var(--accent-red)">Error: ${e.message}</div>`;
+    }
+}
+function closeSummaryPanel() { document.getElementById('summaryPanel').classList.remove('active'); }
+function copySummary() { if (_summaryRawText) { navigator.clipboard.writeText(_summaryRawText); } }
+
+// ─── Compare Sources ─────────────────────────────────────
+async function openCompareModal() {
+    if (sources.length < 2) { alert('Need at least 2 sources to compare'); return; }
+    const names = sources.map(s => s.name);
+    // Show a simple selection UI
+    let selected = [];
+    const html = names.map((n, i) => `<label style="display:flex;align-items:center;gap:0.5rem;padding:0.375rem 0;font-size:0.8125rem;cursor:pointer"><input type="checkbox" value="${i}" onchange="this.checked?window._cmpSel.push(${i}):window._cmpSel=window._cmpSel.filter(x=>x!==${i})"> ${esc(n)}</label>`).join('');
+    window._cmpSel = [];
+    window._cmpNames = names;
+    const panel = document.getElementById('summaryPanel');
+    document.getElementById('summaryBody').innerHTML = `<div style="margin-bottom:1rem"><strong>Select sources to compare:</strong></div>${html}<button class="btn btn-primary" style="width:100%;margin-top:1rem" onclick="doCompare()">Compare Selected</button>`;
+    panel.classList.add('active');
+    document.querySelector('#summaryPanel .summary-header h3').textContent = '⚖️ Compare Sources';
+}
+async function doCompare() {
+    const sel = window._cmpSel || [];
+    if (sel.length < 2) { alert('Select at least 2 sources'); return; }
+    const names = sel.map(i => window._cmpNames[i]);
+    document.getElementById('summaryBody').innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-muted)"><div class="loading-dots" style="display:inline-flex;gap:0.25rem"><span></span><span></span><span></span></div><p style="margin-top:0.5rem">Comparing sources...</p></div>';
+    try {
+        const r = await fetch(`${API}/api/compare`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({source_names:names, notebook_id:activeNotebookId})});
+        const d = await r.json();
+        _summaryRawText = d.comparison || '';
+        let html = '';
+        try { html = typeof marked !== 'undefined' ? marked.parse(_summaryRawText, {breaks:true, gfm:true}) : esc(_summaryRawText); } catch { html = esc(_summaryRawText); }
+        if (typeof DOMPurify !== 'undefined') html = DOMPurify.sanitize(html);
+        document.getElementById('summaryBody').innerHTML = html;
+        document.querySelector('#summaryPanel .summary-header h3').textContent = '⚖️ Source Comparison';
+    } catch(e) {
+        document.getElementById('summaryBody').innerHTML = `<div style="text-align:center;padding:3rem;color:var(--accent-red)">Error: ${e.message}</div>`;
+    }
+}
+
+// ─── Chat Export ─────────────────────────────────────────
+async function exportChat() {
+    if (!chatHistory.length) { alert('No chat to export'); return; }
+    try {
+        const r = await fetch(`${API}/api/chat/export`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({notebook_id:activeNotebookId, format:'md'})});
+        if (!r.ok) { alert('Export failed'); return; }
+        const b = await r.blob();
+        const u = URL.createObjectURL(b);
+        const a = document.createElement('a'); a.href=u; a.download='chat_export.md'; a.click(); URL.revokeObjectURL(u);
+    } catch(e) { alert('Export error: '+e.message); }
+}
+
+// ─── Clear Chat ─────────────────────────────────────────
+async function clearChatHistory() {
+    if (!chatHistory.length || !confirm('Clear all chat history?')) return;
+    await fetch(`${API}/api/history?notebook_id=${activeNotebookId}`, {method:'DELETE'});
+    chatHistory = []; renderChat();
+}
+
+// ─── Clipboard Paste as Source ──────────────────────────
+async function handleClipboardSubmit() {
+    const title = document.getElementById('clipboardTitle').value.trim() || 'Pasted Text';
+    const text = document.getElementById('clipboardText').value.trim();
+    if (!text) { alert('Please paste some text'); return; }
+    const st = document.getElementById('clipboardStatus');
+    st.innerHTML = '<div class="status-msg status-loading">⏳ Processing...</div>';
+    try {
+        const r = await fetch(`${API}/api/clipboard`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text, title, notebook_id:activeNotebookId})});
+        const d = await r.json();
+        if (d.status === 'ok') {
+            st.innerHTML = `<div class="status-msg status-success">✅ "${d.title}" added (${d.chunks} chunks)</div>`;
+            document.getElementById('clipboardTitle').value = '';
+            document.getElementById('clipboardText').value = '';
+            await loadSources();
+            setTimeout(closeModals, 1200);
+        } else {
+            st.innerHTML = `<div class="status-msg status-error">❌ ${d.detail||'Failed'}</div>`;
+        }
+    } catch(e) { st.innerHTML = `<div class="status-msg status-error">❌ ${e.message}</div>`; }
+}
+
+// ─── Source Refresh ──────────────────────────────────────
+async function refreshSource(sourceId) {
+    if (!confirm('Re-fetch this source? Old data will be replaced.')) return;
+    try {
+        const r = await fetch(`${API}/api/sources/refresh`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({source_id:sourceId, notebook_id:activeNotebookId})});
+        const d = await r.json();
+        if (d.status === 'refreshed') {
+            alert(`Refreshed: "${d.title}" (${d.chunks} chunks)`);
+            await loadSources();
+        } else {
+            alert(d.detail || 'Refresh failed');
+        }
+    } catch(e) { alert('Refresh error: '+e.message); }
+}
+
+// ─── Citation Deep-Link ─────────────────────────────────
+function showCitation(event, cid) {
+    const data = window._citationData[cid];
+    if (!data) return;
+    const tt = document.getElementById('citationTooltip');
+    document.getElementById('ctHeader').textContent = data.file + (data.page ? ' · Page ' + data.page : '');
+    // Make citation text clickable to view source
+    document.getElementById('ctText').innerHTML = `<div style="cursor:pointer" onclick="citationDeepLink('${esc(data.file).replace(/'/g,"\\\'")}')">${esc(data.text || 'Source text not available')}<div style="font-size:0.625rem;color:var(--accent);margin-top:0.25rem">🔗 Click to view source</div></div>`;
+    const rect = event.target.getBoundingClientRect();
+    tt.style.left = Math.max(8, Math.min(rect.left - 140, window.innerWidth - 360)) + 'px';
+    tt.style.top = Math.max(8, rect.top - 210) + 'px';
+    tt.classList.add('visible');
+}
+function citationDeepLink(fileName) {
+    hideCitation();
+    const src = sources.find(s => s.name === fileName);
+    if (src) viewSource(src.id, src.name);
+}
 </script>
 </body>
 </html>

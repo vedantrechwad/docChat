@@ -8,6 +8,7 @@ chat history, sources, and notes.
 import json
 import sqlite3
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from pathlib import Path
@@ -29,9 +30,11 @@ class LocalMemoryLayer:
 
     def __init__(self, db_path: str = "./data/memory.db"):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
+        self.conn.execute("PRAGMA journal_mode = WAL")
         self._setup_tables()
         self._ensure_default_notebook()
         logger.info(f"Memory initialized: {db_path}")
@@ -99,14 +102,15 @@ class LocalMemoryLayer:
 
     def create_notebook(self, name: str) -> int:
         """Create a new notebook. Returns its ID."""
-        cursor = self.conn.cursor()
-        now = datetime.now().isoformat()
-        cursor.execute(
-            "INSERT INTO notebooks (name, created_at, updated_at) VALUES (?, ?, ?)",
-            (name, now, now),
-        )
-        self.conn.commit()
-        return cursor.lastrowid
+        with self._lock:
+            cursor = self.conn.cursor()
+            now = datetime.now().isoformat()
+            cursor.execute(
+                "INSERT INTO notebooks (name, created_at, updated_at) VALUES (?, ?, ?)",
+                (name, now, now),
+            )
+            self.conn.commit()
+            return cursor.lastrowid
 
     def list_notebooks(self) -> List[Dict[str, Any]]:
         """List all notebooks."""
@@ -136,23 +140,25 @@ class LocalMemoryLayer:
         return notebooks
 
     def rename_notebook(self, notebook_id: int, name: str) -> bool:
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "UPDATE notebooks SET name = ?, updated_at = ? WHERE id = ?",
-            (name, datetime.now().isoformat(), notebook_id),
-        )
-        self.conn.commit()
-        return cursor.rowcount > 0
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "UPDATE notebooks SET name = ?, updated_at = ? WHERE id = ?",
+                (name, datetime.now().isoformat(), notebook_id),
+            )
+            self.conn.commit()
+            return cursor.rowcount > 0
 
     def delete_notebook(self, notebook_id: int) -> bool:
         """Delete a notebook and all its data. Can't delete the last notebook."""
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM notebooks")
-        if cursor.fetchone()[0] <= 1:
-            return False  # Can't delete the last one
-        cursor.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
-        self.conn.commit()
-        return cursor.rowcount > 0
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM notebooks")
+            if cursor.fetchone()[0] <= 1:
+                return False  # Can't delete the last one
+            cursor.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0
 
     def _touch_notebook(self, notebook_id: int):
         """Update the notebook's updated_at timestamp."""
@@ -165,22 +171,23 @@ class LocalMemoryLayer:
 
     def save_conversation_turn(self, rag_result, notebook_id: int = 1) -> None:
         """Save a query + response pair."""
-        cursor = self.conn.cursor()
-        now = datetime.now().isoformat()
+        with self._lock:
+            cursor = self.conn.cursor()
+            now = datetime.now().isoformat()
 
-        cursor.execute(
-            "INSERT INTO conversations (notebook_id, role, content, sources_json, created_at) VALUES (?, ?, ?, '[]', ?)",
-            (notebook_id, "user", rag_result.query, now),
-        )
+            cursor.execute(
+                "INSERT INTO conversations (notebook_id, role, content, sources_json, created_at) VALUES (?, ?, ?, '[]', ?)",
+                (notebook_id, "user", rag_result.query, now),
+            )
 
-        sources_json = json.dumps(rag_result.sources_used, default=str)
-        cursor.execute(
-            "INSERT INTO conversations (notebook_id, role, content, sources_json, created_at) VALUES (?, ?, ?, ?, ?)",
-            (notebook_id, "assistant", rag_result.response, sources_json, now),
-        )
+            sources_json = json.dumps(rag_result.sources_used, default=str)
+            cursor.execute(
+                "INSERT INTO conversations (notebook_id, role, content, sources_json, created_at) VALUES (?, ?, ?, ?, ?)",
+                (notebook_id, "assistant", rag_result.response, sources_json, now),
+            )
 
-        self.conn.commit()
-        self._touch_notebook(notebook_id)
+            self.conn.commit()
+            self._touch_notebook(notebook_id)
 
     def get_conversation_context(self, notebook_id: int = 1, max_turns: int = 5) -> str:
         """Get recent conversation as formatted context string."""
@@ -261,11 +268,29 @@ class LocalMemoryLayer:
             for row in cursor.fetchall()
         ]
 
-    def delete_source(self, source_id: int) -> bool:
+    def get_source_by_id(self, source_id: int) -> Optional[Dict[str, Any]]:
+        """Get a source record by ID."""
         cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM sources WHERE id = ?", (source_id,))
-        self.conn.commit()
-        return cursor.rowcount > 0
+        cursor.execute(
+            "SELECT id, notebook_id, name, source_type FROM sources WHERE id = ?",
+            (source_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "notebook_id": row["notebook_id"],
+            "name": row["name"],
+            "type": row["source_type"],
+        }
+
+    def delete_source(self, source_id: int) -> bool:
+        with self._lock:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0
 
     # ─── Notes ─────────────────────────────────────────────────────────────
 
