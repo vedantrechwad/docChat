@@ -145,11 +145,8 @@ class LocalMemoryLayer:
         return cursor.rowcount > 0
 
     def delete_notebook(self, notebook_id: int) -> bool:
-        """Delete a notebook and all its data. Can't delete the last notebook."""
+        """Delete a notebook and all its data."""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM notebooks")
-        if cursor.fetchone()[0] <= 1:
-            return False  # Can't delete the last one
         cursor.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
         self.conn.commit()
         return cursor.rowcount > 0

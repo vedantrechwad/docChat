@@ -225,7 +225,7 @@ async def delete_notebook(notebook_id: int):
         raise HTTPException(status_code=503, detail="Not initialized")
     if _memory.delete_notebook(notebook_id):
         return {"status": "ok"}
-    raise HTTPException(status_code=400, detail="Cannot delete the last notebook")
+    raise HTTPException(status_code=404, detail="Notebook not found")
 
 
 # ─── Sources ──────────────────────────────────────────────────────────────────
