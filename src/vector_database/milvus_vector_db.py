@@ -11,6 +11,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _escape_filter_string(value: str) -> str:
+    """Escape a string for Milvus filter expressions."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 class MilvusVectorDB:
     def __init__(
         self, 
@@ -223,7 +228,7 @@ class MilvusVectorDB:
         self,
         query_vector: List[float],
         limit: int = 10,
-        nprobe: int = 128,
+        nprobe: int = 24,
         rbq_query_bits: int = 0,
         refine_k: float = 1.0,
         filter_expr: Optional[str] = None,
@@ -301,11 +306,12 @@ class MilvusVectorDB:
         self,
         source_file: str,
         notebook_id: Optional[int] = None,
-        limit: int = 500,
+        limit: int = 5000,
     ) -> List[Dict[str, Any]]:
         """Get all chunks for a source using exact filtering (no vector query needed)."""
         try:
-            filter_expr = f'source_file == "{source_file}"'
+            safe_name = _escape_filter_string(source_file)
+            filter_expr = f'source_file == "{safe_name}"'
             if notebook_id is not None:
                 filter_expr += f' and notebook_id == {notebook_id}'
 
@@ -344,6 +350,50 @@ class MilvusVectorDB:
         except Exception as e:
             logger.error(f"Error querying by source: {e}")
             return []
+
+    def query_by_notebook(
+        self,
+        notebook_id: int,
+        limit: int = 10000,
+    ) -> List[Dict[str, Any]]:
+        """Get all chunks for a notebook (for full-corpus BM25)."""
+        try:
+            filter_expr = f"notebook_id == {notebook_id}"
+            results = self.client.query(
+                collection_name=self.collection_name,
+                filter=filter_expr,
+                output_fields=[
+                    "id", "content", "source_file", "source_type", "page_number",
+                    "chunk_index", "start_char", "end_char", "metadata", "embedding_model",
+                    "notebook_id",
+                ],
+                limit=limit,
+            )
+
+            formatted = []
+            for r in results:
+                formatted.append({
+                    "id": r.get("id", ""),
+                    "score": 0,
+                    "content": r.get("content", ""),
+                    "citation": {
+                        "source_file": r.get("source_file", ""),
+                        "source_type": r.get("source_type", ""),
+                        "page_number": r.get("page_number") if r.get("page_number", -1) != -1 else None,
+                        "chunk_index": r.get("chunk_index", 0),
+                        "start_char": r.get("start_char") if r.get("start_char", -1) != -1 else None,
+                        "end_char": r.get("end_char") if r.get("end_char", -1) != -1 else None,
+                    },
+                    "metadata": r.get("metadata", {}),
+                    "embedding_model": r.get("embedding_model", ""),
+                })
+
+            logger.info(f"Query by notebook {notebook_id}: {len(formatted)} chunks")
+            return formatted
+
+        except Exception as e:
+            logger.error(f"Error querying by notebook: {e}")
+            return []
     
     def delete_collection(self):
         try:
@@ -361,7 +411,8 @@ class MilvusVectorDB:
     def delete_by_source(self, source_file: str, notebook_id: Optional[int] = None) -> int:
         """Delete all vectors for a given source file."""
         try:
-            filter_expr = f'source_file == "{source_file}"'
+            safe_name = _escape_filter_string(source_file)
+            filter_expr = f'source_file == "{safe_name}"'
             if notebook_id is not None:
                 filter_expr += f' and notebook_id == {notebook_id}'
             self.client.delete(
@@ -395,9 +446,10 @@ class MilvusVectorDB:
             
             logger.info(f"Attempting to retrieve chunk with ID: {chunk_id}")
             
+            safe_id = _escape_filter_string(chunk_id)
             results = self.client.query(
                 collection_name=self.collection_name,
-                filter=f'id == "{chunk_id}"',
+                filter=f'id == "{safe_id}"',
                 output_fields=["id", "content", "metadata", "source_file", "source_type", "page_number", "chunk_index"]
             )
             

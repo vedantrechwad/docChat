@@ -3,360 +3,127 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DocChat — Smart Document Workspace</title>
-    <meta name="description" content="Multi-notebook document Q&A with notes, rich editing, and AI writing assist.">
+    <title>CarnetLM — Local AI Notebook</title>
+    <meta name="description" content="Offline-first local AI notebook. Multi-notebook Q&A with notes, rich editing, and AI writing assist.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
-    <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        :root {
-            /* Matte black theme inspired by NotebookLM */
-            --bg-primary: #1b1b1b; --bg-secondary: #232323; --bg-card: #2a2a2a;
-            --bg-card-hover: #333333; --bg-input: #1e1e1e;
-            --border: #3a3a3a; --border-hover: #4a4a4a;
-            --text-primary: #e3e3e3; --text-secondary: #a0a0a0; --text-muted: #727272;
-            --accent: #8ab4f8; --accent-hover: #6ea1f0; --accent-glow: rgba(138,180,248,0.1);
-            --accent-green: #81c995; --accent-blue: #8ab4f8; --accent-orange: #fcad70; --accent-red: #f28b82;
-            --radius: 12px; --radius-sm: 8px; --radius-lg: 16px;
-            --shadow: 0 2px 12px rgba(0,0,0,0.4); --sidebar-w: 260px;
-        }
-        html, body { height: 100%; font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); overflow: hidden; }
-        button { font-family: inherit; cursor: pointer; }
-        ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; } ::-webkit-scrollbar-track { background: transparent; }
-
-        /* ─── Layout ───────────────────────── */
-        .app { display: flex; height: 100vh; }
-        .sidebar { width: var(--sidebar-w); min-width: var(--sidebar-w); background: var(--bg-secondary); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-        .main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-primary); }
-
-        /* ─── Sidebar ──────────────────────── */
-        .sidebar-header { padding: 1.25rem 1rem; border-bottom: 1px solid var(--border); }
-        .logo { font-size: 1.125rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
-        .logo span { color: var(--accent); }
-        .sidebar-section { padding: 0.75rem 0.75rem 0.25rem; }
-        .sidebar-section-title { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 0.5rem; padding: 0 0.5rem; display: flex; align-items: center; justify-content: space-between; }
-        .sidebar-list { flex: 1; overflow-y: auto; padding: 0 0.75rem; }
-
-        .nb-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s; font-size: 0.8125rem; color: var(--text-secondary); border: 1px solid transparent; }
-        .nb-item:hover { background: var(--bg-card); color: var(--text-primary); }
-        .nb-item.active { background: var(--bg-card); color: var(--accent); border-color: rgba(138,180,248,0.15); }
-        .nb-item .nb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .nb-item .nb-badge { font-size: 0.625rem; background: var(--bg-card); padding: 1px 5px; border-radius: 6px; color: var(--text-muted); }
-        .nb-item .nb-delete { display: none; background: none; border: none; color: var(--accent-red); font-size: 0.75rem; padding: 2px; }
-        .nb-item:hover .nb-delete { display: block; }
-        .nb-item:hover .nb-badge { display: none; }
-
-        .src-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.75rem; color: var(--text-muted); }
-        .src-item:hover { background: var(--bg-card); }
-        .src-icon { width: 22px; height: 22px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 0.6875rem; flex-shrink: 0; }
-        .src-icon-doc { background: rgba(138,180,248,0.1); } .src-icon-web { background: rgba(129,201,149,0.1); } .src-icon-yt { background: rgba(242,139,130,0.1); }
-        .src-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .src-del { display: none; background: none; border: none; color: var(--accent-red); font-size: 0.625rem; cursor: pointer; }
-        .src-item:hover .src-del { display: block; }
-
-        .sidebar-add { display: flex; align-items: center; gap: 0.375rem; padding: 0.375rem 0.5rem; border-radius: 6px; border: 1px dashed var(--border); background: none; color: var(--text-muted); font-size: 0.75rem; width: 100%; transition: all 0.15s; margin-top: 0.25rem; }
-        .sidebar-add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
-
-        .model-section { padding: 0.75rem; border-top: 1px solid var(--border); margin-top: auto; }
-        .model-select { width: 100%; padding: 0.4rem 0.5rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 0.75rem; font-family: inherit; outline: none; }
-        .model-select:focus { border-color: var(--accent); }
-        .model-label { font-size: 0.625rem; color: var(--text-muted); margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
-        .model-status { font-size: 0.625rem; margin-top: 0.25rem; }
-        .model-status.online { color: var(--accent-green); } .model-status.offline { color: var(--accent-red); }
-
-        /* ─── Main ─────────────────────────── */
-        .main-header { display: flex; align-items: center; border-bottom: 1px solid var(--border); background: var(--bg-secondary); flex-shrink: 0; }
-        .tab { padding: 0.875rem 1.25rem; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; transition: all 0.2s; }
-        .tab:hover { color: var(--text-secondary); } .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-        .tab-badge { font-size: 0.5625rem; background: var(--accent-glow); color: var(--accent); padding: 1px 5px; border-radius: 6px; margin-left: 0.375rem; }
-        .main-content { flex: 1; overflow: hidden; position: relative; }
-        .tab-panel { display: none; height: 100%; flex-direction: column; } .tab-panel.active { display: flex; }
-
-        /* ─── Chat ─────────────────────────── */
-        .chat-messages { flex: 1; overflow-y: auto; padding: 1.5rem 2rem; display: flex; flex-direction: column; gap: 1.25rem; }
-        .chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem; color: var(--text-muted); }
-        .chat-empty-icon { font-size: 2.5rem; opacity: 0.3; }
-        .chat-empty h3 { font-size: 1rem; font-weight: 600; color: var(--text-secondary); }
-        .chat-empty p { font-size: 0.8125rem; max-width: 340px; text-align: center; line-height: 1.5; }
-
-        .msg { max-width: 80%; animation: fadeIn 0.3s ease; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        .msg-user { align-self: flex-end; } .msg-assistant { align-self: flex-start; }
-        .msg-bubble { padding: 0.875rem 1.125rem; border-radius: var(--radius-lg); line-height: 1.6; font-size: 0.8125rem; position: relative; }
-        .msg-user .msg-bubble { background: #3c4043; color: var(--text-primary); border-bottom-right-radius: 4px; }
-        .msg-assistant .msg-bubble { background: var(--bg-card); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-        .msg-bubble p { margin-bottom: 0.5rem; } .msg-bubble p:last-child { margin-bottom: 0; }
-        .msg-bubble ul, .msg-bubble ol { padding-left: 1.25rem; margin-bottom: 0.5rem; }
-        .msg-bubble strong { font-weight: 600; }
-        .msg-bubble code { background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; font-size: 0.75rem; }
-
-        /* Citation badges */
-        .citation-ref { display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: #1b1b1b; font-size: 0.5625rem; font-weight: 700; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 3px; vertical-align: middle; margin: 0 1px; cursor: pointer; }
-        /* Global floating citation tooltip */
-        #citationTooltip { display: none; position: fixed; background: var(--bg-secondary); border: 1px solid var(--border); padding: 0.75rem 0.875rem; border-radius: var(--radius-sm); font-size: 0.75rem; color: var(--text-secondary); width: 340px; max-height: 200px; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index: 1000; line-height: 1.5; }
-        #citationTooltip.visible { display: block; }
-        #citationTooltip .ct-header { font-weight: 600; color: var(--accent); margin-bottom: 0.375rem; font-size: 0.6875rem; }
-        #citationTooltip .ct-text { color: var(--text-secondary); }
-
-        /* Message actions */
-        .msg-actions { display: flex; gap: 0.25rem; margin-top: 0.5rem; opacity: 0; transition: opacity 0.15s; }
-        .msg:hover .msg-actions { opacity: 1; }
-        .msg-action-btn { background: var(--bg-card-hover); border: 1px solid var(--border); color: var(--text-muted); font-size: 0.6875rem; padding: 3px 8px; border-radius: 5px; cursor: pointer; display: flex; align-items: center; gap: 3px; transition: all 0.15s; }
-        .msg-action-btn:hover { color: var(--accent); border-color: var(--accent); }
-        .msg-action-btn.speaking { color: var(--accent-green); border-color: var(--accent-green); }
-
-        .msg-sources { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); }
-        .msg-source-tag { font-size: 0.625rem; padding: 2px 6px; border-radius: 5px; background: var(--accent-glow); color: var(--accent); border: 1px solid rgba(138,180,248,0.15); }
-
-        /* Text selection popup in chat */
-        .selection-popup { display: none; position: fixed; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.25rem; box-shadow: var(--shadow); z-index: 300; }
-        .selection-popup.active { display: flex; gap: 0.25rem; }
-        .sel-btn { background: none; border: none; color: var(--text-secondary); font-size: 0.6875rem; padding: 0.375rem 0.625rem; border-radius: 5px; cursor: pointer; white-space: nowrap; transition: all 0.1s; }
-        .sel-btn:hover { background: var(--accent-glow); color: var(--accent); }
-
-        /* Follow-up context bar (like ChatGPT quote) */
-        .followup-bar { display: none; padding: 0.5rem 1rem; margin-bottom: 0.375rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4; position: relative; max-height: 60px; overflow: hidden; }
-        .followup-bar.active { display: block; }
-        .followup-bar .followup-close { position: absolute; top: 4px; right: 6px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.875rem; }
-        .followup-bar .followup-label { font-size: 0.625rem; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px; }
-
-        .msg-loading { align-self: flex-start; display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.8125rem; padding: 0.75rem; }
-        .loading-dots span { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: bounce 1.4s infinite ease-in-out both; }
-        .loading-dots span:nth-child(1) { animation-delay: -0.32s; } .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
-        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
-
-        .chat-input-area { padding: 0.75rem 2rem 1.25rem; flex-shrink: 0; }
-        .chat-input-wrapper { display: flex; align-items: center; gap: 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 1.5rem; padding: 0.375rem 0.375rem 0.375rem 1.25rem; transition: border-color 0.2s; }
-        .chat-input-wrapper:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
-        .chat-input { flex: 1; background: none; border: none; color: var(--text-primary); font-size: 0.8125rem; font-family: inherit; outline: none; }
-        .chat-input::placeholder { color: var(--text-muted); }
-        .send-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); border: none; color: #1b1b1b; display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0; font-weight: 700; }
-        .send-btn:hover { background: var(--accent-hover); transform: scale(1.05); }
-        .send-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
-
-        /* ─── Notes ────────────────────────── */
-        .notes-toolbar { display: flex; gap: 0.5rem; padding: 1rem 2rem; border-bottom: 1px solid var(--border); background: var(--bg-secondary); flex-shrink: 0; }
-        .notes-list { flex: 1; overflow-y: auto; padding: 1rem 2rem; display: flex; flex-direction: column; gap: 0.75rem; }
-        .note-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; cursor: pointer; transition: all 0.15s; }
-        .note-card:hover { border-color: var(--border-hover); background: var(--bg-card-hover); }
-        .note-card-title { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
-        .note-card-preview { font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-        .note-card-meta { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.5rem; }
-
-        .note-editor { display: none; flex: 1; flex-direction: column; }
-        .note-editor.active { display: flex; }
-        .note-editor-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 2rem; border-bottom: 1px solid var(--border); background: var(--bg-secondary); }
-        .note-title-input { flex: 1; background: none; border: none; color: var(--text-primary); font-size: 1rem; font-weight: 600; font-family: inherit; outline: none; }
-        .note-content-area { flex: 1; padding: 1.5rem 2rem; overflow-y: auto; }
-        .note-textarea { width: 100%; height: 100%; background: none; border: none; color: var(--text-primary); font-size: 0.875rem; font-family: inherit; line-height: 1.7; outline: none; resize: none; }
-        .note-highlight { background: rgba(138,180,248,0.15); }
-
-        /* ─── Editor ───────────────────────── */
-        .editor-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        .editor-toolbar-custom { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-        .editor-container { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-        .editor-container .ql-toolbar { background: var(--bg-card); border-color: var(--border) !important; flex-shrink: 0; }
-        .editor-container .ql-toolbar .ql-stroke { stroke: var(--text-secondary) !important; }
-        .editor-container .ql-toolbar .ql-fill { fill: var(--text-secondary) !important; }
-        .editor-container .ql-toolbar .ql-picker-label { color: var(--text-secondary) !important; }
-        .editor-container .ql-toolbar button:hover .ql-stroke, .editor-container .ql-toolbar button.ql-active .ql-stroke { stroke: var(--accent) !important; }
-        .editor-container .ql-toolbar button:hover .ql-fill, .editor-container .ql-toolbar button.ql-active .ql-fill { fill: var(--accent) !important; }
-        .editor-container .ql-container { border-color: var(--border) !important; background: var(--bg-primary); font-family: 'Inter', sans-serif; font-size: 0.9375rem; flex: 1; overflow-y: auto; }
-        .editor-container .ql-editor { color: var(--text-primary); min-height: 400px; line-height: 1.8; padding: 2rem; }
-        .editor-container .ql-editor.ql-blank::before { color: var(--text-muted); font-style: normal; }
-        .editor-container .ql-snow .ql-picker-options { background: var(--bg-card) !important; border-color: var(--border) !important; }
-        .editor-container .ql-snow .ql-picker-item { color: var(--text-secondary) !important; }
-        .editor-container .ql-snow .ql-picker-item:hover { color: var(--accent) !important; }
-
-        /* AI Panel */
-        .ai-panel { display: none; position: fixed; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75rem; box-shadow: var(--shadow); z-index: 500; min-width: 280px; max-width: 400px; }
-        .ai-panel.active { display: block; }
-        .ai-panel-actions { display: flex; gap: 0.25rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
-        .ai-btn { background: var(--bg-card-hover); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.6875rem; padding: 4px 8px; border-radius: 5px; cursor: pointer; transition: all 0.15s; }
-        .ai-btn:hover { color: var(--accent); border-color: var(--accent); }
-        .ai-grammar-status { font-size: 0.6875rem; padding: 3px 8px; border-radius: 5px; display: none; align-items: center; gap: 4px; }
-        .ai-grammar-status.checking { display: flex; color: var(--text-muted); }
-        .ai-grammar-status.good { display: flex; color: var(--accent-green); background: rgba(129,201,149,0.1); }
-        .ai-grammar-status.bad { display: flex; color: var(--accent-orange); background: rgba(252,173,112,0.1); cursor: pointer; }
-        .grammar-suggestion { display: none; font-size: 0.75rem; line-height: 1.5; padding: 0.5rem; background: var(--bg-input); border-radius: 6px; margin-bottom: 0.5rem; border-left: 3px solid var(--accent-orange); }
-        .grammar-suggestion.active { display: block; }
-        .grammar-suggestion .gs-label { font-size: 0.625rem; color: var(--accent-orange); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem; }
-        .grammar-suggestion .gs-text { color: var(--text-primary); }
-        .grammar-suggestion .gs-actions { display: flex; gap: 0.25rem; margin-top: 0.375rem; justify-content: flex-end; }
-        .ai-result { font-size: 0.8125rem; line-height: 1.6; color: var(--text-primary); max-height: 200px; overflow-y: auto; padding: 0.5rem; background: var(--bg-input); border-radius: 6px; margin-bottom: 0.5rem; }
-        .ai-result-actions { display: flex; gap: 0.25rem; justify-content: flex-end; }
-
-        /* ─── Shared ───────────────────────── */
-        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; padding: 0.5rem 0.875rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-size: 0.75rem; font-weight: 500; cursor: pointer; transition: all 0.15s; font-family: inherit; }
-        .btn:hover { background: var(--bg-card-hover); border-color: var(--border-hover); }
-        .btn-primary { background: var(--accent); border-color: var(--accent); color: #1b1b1b; font-weight: 600; }
-        .btn-primary:hover { background: var(--accent-hover); }
-        .btn-sm { padding: 0.3rem 0.625rem; font-size: 0.6875rem; }
-        .btn-danger { color: var(--accent-red); border-color: rgba(242,139,130,0.3); }
-        .btn-danger:hover { background: rgba(242,139,130,0.1); }
-
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
-        .modal-overlay.active { display: flex; }
-        .modal { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.75rem; width: 90%; max-width: 440px; box-shadow: var(--shadow); animation: fadeIn 0.2s ease; }
-        .modal h3 { font-size: 0.9375rem; font-weight: 600; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
-        .modal-close { margin-left: auto; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.125rem; }
-        .input { width: 100%; padding: 0.625rem 0.875rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 0.8125rem; font-family: inherit; outline: none; transition: border-color 0.2s; }
-        .input:focus { border-color: var(--accent); }
-        .input-group { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
-        .input-label { font-size: 0.75rem; color: var(--text-secondary); font-weight: 500; }
-        .file-drop { border: 2px dashed var(--border); border-radius: var(--radius); padding: 1.5rem; text-align: center; cursor: pointer; transition: all 0.2s; color: var(--text-muted); font-size: 0.75rem; }
-        .file-drop:hover, .file-drop.dragover { border-color: var(--accent); background: var(--accent-glow); }
-        .file-drop input { display: none; }
-        .status-msg { font-size: 0.75rem; padding: 0.625rem 0.875rem; border-radius: var(--radius-sm); margin-top: 0.5rem; }
-        .status-success { background: rgba(129,201,149,0.1); color: var(--accent-green); border: 1px solid rgba(129,201,149,0.2); }
-        .status-error { background: rgba(242,139,130,0.1); color: var(--accent-red); border: 1px solid rgba(242,139,130,0.2); }
-        .status-loading { background: var(--accent-glow); color: var(--accent); border: 1px solid rgba(138,180,248,0.15); }
-
-        .note-selector { position: fixed; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.5rem; box-shadow: var(--shadow); z-index: 200; min-width: 220px; max-height: 240px; overflow-y: auto; display: none; }
-        .note-selector.active { display: block; }
-        .note-selector-item { padding: 0.375rem 0.625rem; border-radius: 5px; font-size: 0.75rem; cursor: pointer; color: var(--text-secondary); }
-        .note-selector-item:hover { background: var(--accent-glow); color: var(--accent); }
-        .note-selector-new { color: var(--accent); border-top: 1px solid var(--border); margin-top: 0.25rem; padding-top: 0.5rem; }
-
-        /* ─── New Feature Styles ──────────── */
-        .chat-toolbar { display: flex; gap: 0.375rem; padding: 0 2rem 0.5rem; flex-shrink: 0; flex-wrap: wrap; }
-        .chat-tool-btn { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.6875rem; padding: 0.25rem 0.625rem; border-radius: 1rem; cursor: pointer; transition: all 0.15s; font-family: inherit; display: inline-flex; align-items: center; gap: 0.25rem; }
-        .chat-tool-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-glow); }
-
-        .source-viewer-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; }
-        .source-viewer-overlay.active { display: flex; }
-        .source-viewer { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 700px; max-height: 80vh; display: flex; flex-direction: column; box-shadow: var(--shadow); }
-        .source-viewer-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); }
-        .source-viewer-header h3 { font-size: 0.9375rem; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .source-viewer-body { flex: 1; overflow-y: auto; padding: 1.5rem; }
-        .source-chunk { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem; margin-bottom: 0.75rem; font-size: 0.8125rem; line-height: 1.7; color: var(--text-primary); }
-        .source-chunk-meta { font-size: 0.6875rem; color: var(--text-muted); margin-bottom: 0.5rem; }
-
-        .search-results-panel { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 600px; max-height: 70vh; z-index: 1001; box-shadow: var(--shadow); flex-direction: column; }
-        .search-results-panel.active { display: flex; }
-        .search-results-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.75rem; }
-        .search-results-header input { flex: 1; }
-        .search-results-body { flex: 1; overflow-y: auto; padding: 1rem 1.5rem; }
-        .search-result-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.875rem; margin-bottom: 0.5rem; cursor: default; }
-        .search-result-item:hover { border-color: var(--border-hover); }
-        .search-result-source { font-size: 0.6875rem; color: var(--accent); font-weight: 500; margin-bottom: 0.25rem; }
-        .search-result-text { font-size: 0.8125rem; color: var(--text-primary); line-height: 1.5; }
-        .search-result-score { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.25rem; }
-
-        .summary-panel { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 700px; max-height: 80vh; z-index: 1001; box-shadow: var(--shadow); flex-direction: column; }
-        .summary-panel.active { display: flex; }
-        .summary-header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.5rem; }
-        .summary-header h3 { flex: 1; font-size: 0.9375rem; font-weight: 600; }
-        .summary-body { flex: 1; overflow-y: auto; padding: 1.5rem; font-size: 0.875rem; line-height: 1.8; }
-        .summary-body h1, .summary-body h2, .summary-body h3 { color: var(--accent); margin: 1rem 0 0.5rem; }
-        .summary-body ul, .summary-body ol { padding-left: 1.5rem; }
-        .summary-body li { margin-bottom: 0.25rem; }
-        .summary-body strong { color: var(--text-primary); }
-        .summary-body table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-        .summary-body th, .summary-body td { border: 1px solid var(--border); padding: 0.5rem; font-size: 0.8125rem; text-align: left; }
-        .summary-body th { background: var(--bg-card); color: var(--accent); }
-
-        /* Markdown in chat bubbles */
-        .msg-bubble h1, .msg-bubble h2, .msg-bubble h3 { margin: 0.75rem 0 0.375rem; font-size: 0.9375rem; color: var(--accent); }
-        .msg-bubble h1 { font-size: 1.0625rem; }
-        .msg-bubble ul, .msg-bubble ol { padding-left: 1.5rem; margin: 0.375rem 0; }
-        .msg-bubble li { margin-bottom: 0.125rem; }
-        .msg-bubble pre { background: var(--bg-input); padding: 0.75rem; border-radius: var(--radius-sm); overflow-x: auto; margin: 0.5rem 0; }
-        .msg-bubble pre code { font-size: 0.75rem; }
-        .msg-bubble code { background: var(--bg-input); padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.8125rem; }
-        .msg-bubble table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
-        .msg-bubble th, .msg-bubble td { border: 1px solid var(--border); padding: 0.375rem 0.5rem; font-size: 0.8125rem; }
-        .msg-bubble th { background: var(--bg-card); }
-        .msg-bubble blockquote { border-left: 3px solid var(--accent); padding-left: 0.75rem; margin: 0.5rem 0; color: var(--text-secondary); }
-
-        /* Streaming typing */
-        .msg-streaming .msg-bubble::after { content: '▊'; animation: blink 1s step-end infinite; color: var(--accent); }
-        @keyframes blink { 50% { opacity: 0; } }
-    </style>
+    <link rel="stylesheet" href="/static/theme.css">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+    <script src="/static/icons.js"></script>
 </head>
 <body>
+
+<!-- WebGL tessellation background -->
+<canvas id="geo-canvas"></canvas>
+
+<!-- Scanline overlay -->
+<div class="scanlines"></div>
+
 <div class="app">
+    <!-- Sidebar -->
     <div class="sidebar">
-        <div class="sidebar-header"><span class="logo">Doc<span>Chat</span></span></div>
+        <div class="sidebar-header">
+            <div class="logo"><i data-lucide="book-open" class="logo-icon icon" style="width:16px;height:16px"></i> CarnetLM</div>
+        </div>
         <div class="sidebar-section">
-            <div class="sidebar-section-title">Notebooks <button class="sidebar-add" style="width:auto;margin:0;padding:2px 6px;border:none;" onclick="createNotebook()" title="New Notebook">+</button></div>
+            <div class="sidebar-section-title">
+                Notebooks
+                <button class="sidebar-add" style="width:auto;margin:0;padding:2px 6px;border:none;font-size:0.625rem;" onclick="createNotebook()" title="New Notebook">+ NEW</button>
+            </div>
         </div>
         <div class="sidebar-list" id="notebookList"></div>
         <div class="sidebar-section" style="margin-top:0.5rem;">
-            <div class="sidebar-section-title">Sources <span id="sourceCount" style="font-weight:400">0</span></div>
+            <div class="sidebar-section-title">Sources <span id="sourceCount" style="font-weight:400;color:var(--g30)">0</span></div>
         </div>
-        <div style="padding:0 0.75rem; overflow-y:auto; max-height:180px;" id="sourceList"></div>
-        <div style="padding:0.25rem 0.75rem; display:flex; gap:0.25rem; flex-wrap:wrap;">
-            <button class="sidebar-add" onclick="openModal('upload')">📄 File</button>
-            <button class="sidebar-add" onclick="openModal('url')">🌐 URL</button>
-            <button class="sidebar-add" onclick="openModal('youtube')">🎥 YT</button>
-            <button class="sidebar-add" onclick="openModal('clipboard')" title="Paste text as source">📋 Paste</button>
+        <div style="padding:0 0.75rem; overflow-y:auto; max-height:160px;" id="sourceList"></div>
+        <div class="sidebar-actions">
+            <div class="sidebar-actions-row">
+                <button class="sidebar-add" onclick="openModal('upload')"><i data-lucide="file-up" class="icon" style="width:14px;height:14px"></i> File</button>
+                <button class="sidebar-add" onclick="openModal('url')"><i data-lucide="link" class="icon" style="width:14px;height:14px"></i> URL</button>
+                <button class="sidebar-add" onclick="openModal('youtube')"><i data-lucide="youtube" class="icon" style="width:14px;height:14px"></i> YouTube</button>
+                <button class="sidebar-add" onclick="openModal('clipboard')"><i data-lucide="clipboard-paste" class="icon" style="width:14px;height:14px"></i> Paste</button>
+            </div>
+            <div class="sidebar-actions-row">
+                <button class="sidebar-add" onclick="openModal('search')"><i data-lucide="search" class="icon" style="width:14px;height:14px"></i> Search</button>
+                <button class="sidebar-add" id="discoverBtn" style="display:none" onclick="openDiscoverModal()"><i data-lucide="globe" class="icon" style="width:14px;height:14px"></i> Discover</button>
+                <button class="sidebar-add" onclick="runSummary()"><i data-lucide="sparkles" class="icon" style="width:14px;height:14px"></i> Guide</button>
+                <button class="sidebar-add" onclick="openModal('compare')"><i data-lucide="git-compare" class="icon" style="width:14px;height:14px"></i> Compare</button>
+            </div>
+        </div>
+        <div class="settings-btn-wrap">
+            <button class="sidebar-add" style="width:100%" onclick="openSettings()"><i data-lucide="settings" class="icon" style="width:14px;height:14px"></i> Settings</button>
         </div>
         <div class="model-section">
-            <div class="model-label">🤖 AI Model</div>
+            <div class="model-label">AI model</div>
             <select class="model-select" id="modelSelect" onchange="selectModel(this.value)"><option>Loading...</option></select>
             <div class="model-status" id="modelStatus"></div>
         </div>
     </div>
 
+    <!-- Main -->
     <div class="main">
         <div class="main-header">
-            <button class="tab active" data-tab="chat" onclick="switchTab('chat')">💬 Chat</button>
-            <button class="tab" data-tab="notes" onclick="switchTab('notes')">📝 Notes <span class="tab-badge" id="notesBadge">0</span></button>
-            <button class="tab" data-tab="editor" onclick="switchTab('editor')">✍️ Editor</button>
+            <button class="tab active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
+            <button class="tab" data-tab="notes" onclick="switchTab('notes')">Notes <span class="tab-badge" id="notesBadge">0</span></button>
+            <button class="tab" data-tab="editor" onclick="switchTab('editor')">Editor</button>
         </div>
         <div class="main-content">
             <!-- Chat -->
             <div class="tab-panel active" id="panel-chat">
+                <div class="notes-toolbar" style="padding:0.5rem 1rem;border-bottom:1px solid var(--g15);display:flex;gap:0.5rem;">
+                    <button class="btn btn-sm btn-soft" onclick="exportChat('md')"><i data-lucide="download" class="icon" style="width:12px;height:12px"></i> Export</button>
+                    <button class="btn btn-sm btn-ghost" onclick="clearChatHistory()"><i data-lucide="trash-2" class="icon" style="width:12px;height:12px"></i> Clear</button>
+                </div>
+                <div id="onboardingWrap"></div>
                 <div class="chat-messages" id="chatMessages">
-                    <div class="chat-empty"><div class="chat-empty-icon">💬</div><h3>Ask anything about your documents</h3><p>Upload sources, then ask questions for cited answers.</p></div>
+                    <div class="chat-empty">
+                        <div class="chat-empty-icon"><i data-lucide="messages-square" style="width:32px;height:32px;opacity:0.2"></i></div>
+                        <h3>Ask anything about your documents</h3>
+                        <p>Upload sources, then query for cited answers from your local model.</p>
+                    </div>
                 </div>
                 <div class="chat-input-area">
-                    <div class="chat-toolbar">
-                        <button class="chat-tool-btn" onclick="generateSummary()" title="Generate study guide from all sources">📊 Summary</button>
-                        <button class="chat-tool-btn" onclick="openSearchPanel()" title="Search across all sources">🔍 Search</button>
-                        <button class="chat-tool-btn" onclick="openCompareModal()" title="Compare sources">⚖️ Compare</button>
-                        <button class="chat-tool-btn" onclick="exportChat()" title="Export chat history">💾 Export</button>
-                        <button class="chat-tool-btn" onclick="clearChatHistory()" title="Clear chat">🗑 Clear</button>
-                    </div>
                     <div class="followup-bar" id="followupBar">
-                        <div class="followup-label">Replying to</div>
+                        <div class="followup-label">↳ Context</div>
                         <span id="followupText"></span>
                         <button class="followup-close" onclick="clearFollowup()">&times;</button>
                     </div>
                     <form class="chat-input-wrapper" onsubmit="sendMessage(event)">
-                        <input type="text" class="chat-input" id="chatInput" placeholder="Ask a question..." autocomplete="off">
-                        <button type="submit" class="send-btn" id="sendBtn">➤</button>
+                        <input type="text" class="chat-input" id="chatInput" placeholder="query your documents_" autocomplete="off">
+                        <button type="submit" class="send-btn" id="sendBtn"><i data-lucide="send" style="width:16px;height:16px"></i></button>
                     </form>
                 </div>
             </div>
+
             <!-- Notes -->
             <div class="tab-panel" id="panel-notes">
                 <div id="notesListView">
-                    <div class="notes-toolbar"><button class="btn btn-primary btn-sm" onclick="createNote()">+ New Note</button></div>
+                    <div class="notes-toolbar"><button class="btn btn-primary btn-sm" onclick="createNote()"><i data-lucide="plus" class="icon" style="width:12px;height:12px"></i> New note</button></div>
                     <div class="notes-list" id="notesList"></div>
                 </div>
                 <div class="note-editor" id="noteEditorView">
                     <div class="note-editor-header">
-                        <button class="btn btn-sm" onclick="saveAndCloseNote()">← Save & Back</button>
+                        <button class="btn btn-sm btn-soft" onclick="saveAndCloseNote()"><i data-lucide="save" class="icon" style="width:12px;height:12px"></i> Save</button>
                         <input type="text" class="note-title-input" id="noteTitleInput" placeholder="Note title...">
-                        <button class="btn btn-sm btn-danger" onclick="deleteCurrentNote()">🗑</button>
+                        <button class="btn btn-sm" id="noteIndexBtn" onclick="toggleNoteIndex()" data-indexed="0"><i data-lucide="database" class="icon" style="width:12px;height:12px"></i> Index</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteCurrentNote()"><i data-lucide="trash-2" class="icon" style="width:12px;height:12px"></i> Delete</button>
                     </div>
                     <div class="note-content-area"><textarea class="note-textarea" id="noteContentArea" placeholder="Start writing..."></textarea></div>
                 </div>
             </div>
+
             <!-- Editor -->
             <div class="tab-panel" id="panel-editor">
                 <div class="editor-area">
                     <div class="editor-toolbar-custom">
-                        <button class="btn btn-sm" onclick="insertNoteIntoEditor()">📝 Insert Note</button>
+                        <button class="btn btn-sm btn-soft" onclick="insertNoteIntoEditor()"><i data-lucide="file-plus" class="icon" style="width:12px;height:12px"></i> Insert note</button>
                         <div style="flex:1"></div>
-                        <span style="font-size:0.6875rem;color:var(--text-muted);" id="wordCount">0 words</span>
-                        <button class="btn btn-sm" onclick="exportDoc('txt')">📄 TXT</button>
-                        <button class="btn btn-sm" onclick="exportDoc('md')">📋 MD</button>
-                        <button class="btn btn-sm" onclick="exportDoc('docx')">📘 DOCX</button>
-                        <button class="btn btn-sm" onclick="window.print()">🖨 PDF</button>
+                        <span style="font-family:var(--font-mono);font-size:0.4375rem;color:var(--g30);letter-spacing:0.08em;" id="wordCount">0 words</span>
+                        <button class="btn btn-sm btn-ghost" onclick="exportDoc('txt')"><i data-lucide="download" class="icon" style="width:12px;height:12px"></i> TXT</button>
+                        <button class="btn btn-sm btn-ghost" onclick="exportDoc('md')"><i data-lucide="download" class="icon" style="width:12px;height:12px"></i> MD</button>
+                        <button class="btn btn-sm btn-ghost" onclick="exportDoc('docx')"><i data-lucide="download" class="icon" style="width:12px;height:12px"></i> DOCX</button>
+                        <button class="btn btn-sm btn-ghost" onclick="window.print()"><i data-lucide="printer" class="icon" style="width:12px;height:12px"></i> PDF</button>
                     </div>
                     <div class="editor-container"><div id="quillEditor"></div></div>
                 </div>
@@ -368,10 +135,10 @@
 <!-- Global citation tooltip -->
 <div id="citationTooltip"><div class="ct-header" id="ctHeader"></div><div class="ct-text" id="ctText"></div></div>
 
-<!-- Selection popup for chat text -->
+<!-- Selection popup -->
 <div class="selection-popup" id="selectionPopup">
-    <button class="sel-btn" onclick="doFollowUp()">💬 Follow up</button>
-    <button class="sel-btn" onclick="doAddToNote()">📝 Add to Note</button>
+    <button class="sel-btn" onclick="doFollowUp()"><i data-lucide="corner-down-right" class="icon" style="width:12px;height:12px"></i> Follow up</button>
+    <button class="sel-btn" onclick="doAddToNote()"><i data-lucide="bookmark-plus" class="icon" style="width:12px;height:12px"></i> Note</button>
 </div>
 
 <!-- AI Panel -->
@@ -388,11 +155,11 @@
         </div>
     </div>
     <div class="ai-panel-actions">
-        <button class="ai-btn" onclick="aiAssist('grammar')">✏️ Grammar</button>
-        <button class="ai-btn" onclick="aiAssist('rewrite')">🔄 Rewrite</button>
-        <button class="ai-btn" onclick="aiAssist('define')">📖 Define</button>
-        <button class="ai-btn" onclick="aiAssist('simplify')">✨ Simplify</button>
-        <button class="ai-btn" onclick="aiAssist('expand')">📝 Expand</button>
+        <button class="ai-btn" onclick="aiAssist('grammar')"><i data-lucide="spell-check" class="icon" style="width:12px;height:12px"></i> Grammar</button>
+        <button class="ai-btn" onclick="aiAssist('rewrite')"><i data-lucide="refresh-cw" class="icon" style="width:12px;height:12px"></i> Rewrite</button>
+        <button class="ai-btn" onclick="aiAssist('define')"><i data-lucide="book" class="icon" style="width:12px;height:12px"></i> Define</button>
+        <button class="ai-btn" onclick="aiAssist('simplify')"><i data-lucide="minimize-2" class="icon" style="width:12px;height:12px"></i> Simplify</button>
+        <button class="ai-btn" onclick="aiAssist('expand')"><i data-lucide="maximize-2" class="icon" style="width:12px;height:12px"></i> Expand</button>
     </div>
     <div class="ai-result" id="aiResult" style="display:none"></div>
     <div class="ai-result-actions" id="aiResultActions" style="display:none">
@@ -406,100 +173,353 @@
 <!-- Modals -->
 <div class="modal-overlay" id="modal-upload">
     <div class="modal">
-        <h3>📄 Upload Document <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <h3><i data-lucide="file-up" class="icon" style="width:16px;height:16px"></i> Upload document <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div class="input-group"><label class="input-label">Chunk preset</label>
+            <select class="input" id="chunkPresetSelect">
+                <option value="auto">Auto (recommended)</option>
+                <option value="compact">Compact</option>
+                <option value="balanced">Balanced</option>
+                <option value="dense">Dense</option>
+            </select>
+        </div>
         <div class="file-drop" id="fileDrop" onclick="document.getElementById('fileInput').click()">
-            <p style="font-size:1.25rem;margin-bottom:0.375rem;">📁</p><p>Drag & drop or click to browse</p>
-            <p style="margin-top:0.25rem;font-size:0.625rem;color:var(--text-muted)">PDF, TXT, MD</p>
+            <p style="font-size:1rem;margin-bottom:0.375rem;opacity:0.4"><i data-lucide="upload" style="width:24px;height:24px"></i></p>
+            <p>Drag & drop or click to browse</p>
+            <p style="margin-top:0.375rem;font-size:0.4375rem;color:var(--g30);letter-spacing:0.1em">PDF · TXT · MD</p>
             <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md" onchange="handleFileUpload(this.files)">
-        </div><div id="uploadStatus"></div>
+        </div>
+        <div id="uploadStatus"></div>
     </div>
 </div>
+
 <div class="modal-overlay" id="modal-url">
     <div class="modal">
-        <h3>🌐 Add Website <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <h3><i data-lucide="link" class="icon" style="width:16px;height:16px"></i> Add website <button class="modal-close" onclick="closeModals()">&times;</button></h3>
         <div class="input-group"><label class="input-label">URL</label><input type="url" class="input" id="urlInput" placeholder="https://example.com"></div>
-        <button class="btn btn-primary" style="width:100%" onclick="handleURLSubmit()">Add</button><div id="urlStatus"></div>
+        <button class="btn btn-primary" style="width:100%" onclick="handleURLSubmit()">Add source</button>
+        <div id="urlStatus"></div>
     </div>
 </div>
+
 <div class="modal-overlay" id="modal-youtube">
     <div class="modal">
-        <h3>🎥 YouTube Video <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <h3><i data-lucide="youtube" class="icon" style="width:16px;height:16px"></i> YouTube video <button class="modal-close" onclick="closeModals()">&times;</button></h3>
         <div class="input-group"><label class="input-label">YouTube URL</label><input type="url" class="input" id="youtubeInput" placeholder="https://youtube.com/watch?v=..."></div>
-        <button class="btn btn-primary" style="width:100%" onclick="handleYouTubeSubmit()">Extract</button><div id="youtubeStatus"></div>
-    </div>
-</div>
-<!-- New Note Name Modal -->
-<div class="modal-overlay" id="modal-newNote">
-    <div class="modal">
-        <h3>📝 New Note <button class="modal-close" onclick="closeModals()">&times;</button></h3>
-        <div class="input-group"><label class="input-label">Note Name</label><input type="text" class="input" id="newNoteNameInput" placeholder="My Note"></div>
-        <button class="btn btn-primary" style="width:100%" onclick="saveNewNoteFromChat()">Save Note</button>
+        <button class="btn btn-primary" style="width:100%" onclick="handleYouTubeSubmit()">Extract transcript</button>
+        <div id="youtubeStatus"></div>
     </div>
 </div>
 
-<!-- Clipboard Modal -->
 <div class="modal-overlay" id="modal-clipboard">
     <div class="modal">
-        <h3>📋 Paste Text <button class="modal-close" onclick="closeModals()">&times;</button></h3>
-        <div class="input-group"><label class="input-label">Title</label><input type="text" class="input" id="clipboardTitle" placeholder="e.g. Lecture Notes"></div>
-        <div class="input-group"><label class="input-label">Text Content</label><textarea class="input" id="clipboardText" rows="6" placeholder="Paste your text here..."></textarea></div>
-        <button class="btn btn-primary" style="width:100%" onclick="handleClipboardSubmit()">Add as Source</button><div id="clipboardStatus"></div>
+        <h3><i data-lucide="clipboard-paste" class="icon" style="width:16px;height:16px"></i> Paste text <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div class="input-group"><label class="input-label">Title</label><input type="text" class="input" id="clipboardTitle" placeholder="Pasted text"></div>
+        <div class="input-group"><label class="input-label">Content</label><textarea class="input" id="clipboardText" rows="8" style="resize:vertical"></textarea></div>
+        <button class="btn btn-primary" style="width:100%" onclick="handleClipboardSubmit()">Add source</button>
+        <div id="clipboardStatus"></div>
     </div>
 </div>
 
-<!-- Source Viewer -->
-<div class="source-viewer-overlay" id="sourceViewerOverlay" onclick="if(event.target===this)closeSourceViewer()">
-    <div class="source-viewer">
-        <div class="source-viewer-header">
-            <h3 id="sourceViewerTitle">Source</h3>
-            <button class="btn btn-sm" onclick="closeSourceViewer()">&times; Close</button>
+<div class="modal-overlay" id="modal-search">
+    <div class="modal" style="max-width:640px">
+        <h3><i data-lucide="search" class="icon" style="width:16px;height:16px"></i> Semantic search <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div class="input-group"><input type="text" class="input" id="searchInput" placeholder="Search your sources..."></div>
+        <button class="btn btn-primary" style="width:100%" onclick="runSearch()">Search</button>
+        <div id="searchResults" style="margin-top:1rem;max-height:300px;overflow:auto"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="modal-compare">
+    <div class="modal" style="max-width:720px">
+        <h3><i data-lucide="git-compare" class="icon" style="width:16px;height:16px"></i> Compare sources <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <p style="font-size:0.75rem;color:var(--g40);margin-bottom:0.5rem">Select 2+ sources to compare</p>
+        <div id="compareSourceList"></div>
+        <button class="btn btn-primary" style="width:100%;margin-top:0.5rem" onclick="runCompare()">Compare</button>
+        <div id="compareResult" style="margin-top:1rem;max-height:400px;overflow:auto;white-space:pre-wrap;font-size:0.75rem"></div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="modal-source">
+    <div class="modal" style="max-width:800px;width:90%">
+        <h3 id="sourceViewerTitle"><i data-lucide="file-text" class="icon" style="width:16px;height:16px"></i> Source <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div id="sourceViewerMeta" style="font-size:0.5rem;color:var(--g40);margin-bottom:0.5rem"></div>
+        <div id="sourcePdfPages" style="display:none"></div>
+        <div id="sourceChunksView" style="display:none;max-height:400px;overflow-y:auto"></div>
+        <textarea class="input" id="sourceEditorText" rows="16" style="width:100%;display:none;font-family:var(--font-mono);font-size:0.75rem"></textarea>
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+            <button class="btn btn-primary" id="sourceSaveBtn" onclick="saveSourceContent()"><i data-lucide="save" class="icon" style="width:12px;height:12px"></i> Save & re-index</button>
+            <button class="btn btn-sm btn-ghost" id="sourceRefreshBtn" onclick="refreshCurrentSource()"><i data-lucide="refresh-cw" class="icon" style="width:12px;height:12px"></i> Refresh</button>
         </div>
-        <div class="source-viewer-body" id="sourceViewerBody"></div>
+        <div id="sourceViewerStatus"></div>
     </div>
 </div>
 
-<!-- Search Panel -->
-<div class="search-results-panel" id="searchPanel">
-    <div class="search-results-header">
-        <span style="font-size:1rem">🔍</span>
-        <input type="text" class="input" id="searchInput" placeholder="Search across all sources..." onkeydown="if(event.key==='Enter')doSearch()">
-        <button class="btn btn-sm btn-primary" onclick="doSearch()">Search</button>
-        <button class="modal-close" onclick="closeSearchPanel()">&times;</button>
+<div class="modal-overlay" id="modal-newNote">
+    <div class="modal">
+        <h3><i data-lucide="sticky-note" class="icon" style="width:16px;height:16px"></i> New note <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div class="input-group"><label class="input-label">Note name</label><input type="text" class="input" id="newNoteNameInput" placeholder="Untitled note"></div>
+        <button class="btn btn-primary" style="width:100%" onclick="saveNewNoteFromChat()">Save note</button>
     </div>
-    <div class="search-results-body" id="searchResults"><div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.8125rem">Type a query and press Enter</div></div>
 </div>
 
-<!-- Summary Panel -->
-<div class="summary-panel" id="summaryPanel">
-    <div class="summary-header">
-        <span style="font-size:1rem">📊</span>
-        <h3>Study Guide / Summary</h3>
-        <button class="btn btn-sm" onclick="copySummary()">📋 Copy</button>
-        <button class="modal-close" onclick="closeSummaryPanel()">&times;</button>
+
+<div class="modal-overlay" id="modal-settings">
+    <div class="modal" style="max-width:520px">
+        <h3><i data-lucide="settings" class="icon" style="width:16px;height:16px"></i> Settings <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div class="settings-section">
+            <h4>Model</h4>
+            <div id="settingsModelInfo" style="font-size:0.75rem;color:var(--g60)">Loading...</div>
+        </div>
+        <div class="settings-section">
+            <h4>Chunk preset</h4>
+            <select class="input" id="settingsChunkPreset">
+                <option value="auto">Auto (recommended)</option>
+                <option value="compact">Compact</option>
+                <option value="balanced">Balanced</option>
+                <option value="dense">Dense</option>
+            </select>
+            <h4 style="margin-top:0.75rem">Ingest mode</h4>
+            <select class="input" id="settingsIngestMode">
+                <option value="quality">Quality — larger chunks, full structure</option>
+                <option value="fast">Fast — compact chunks, section-aware</option>
+            </select>
+            <button class="btn btn-soft btn-sm" style="margin-top:0.5rem" onclick="saveChunkPreset()">Save ingest settings</button>
+        </div>
+        <div class="settings-section">
+            <h4>Web discovery</h4>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;margin-bottom:0.5rem">
+                <input type="checkbox" id="settingsDiscoverEnabled"> Enable Discover in sidebar
+            </label>
+            <select class="input" id="settingsDiscoverProvider" style="margin-bottom:0.5rem">
+                <option value="duckduckgo">DuckDuckGo (free)</option>
+                <option value="tavily">Tavily (API key)</option>
+                <option value="brave">Brave Search (API key)</option>
+            </select>
+            <input class="input" id="settingsDiscoverApiKey" type="password" placeholder="API key (optional for DDG)" style="margin-bottom:0.5rem">
+            <input class="input" id="settingsDiscoverMax" type="number" min="3" max="15" value="8" placeholder="Max results" style="margin-bottom:0.5rem">
+            <button class="btn btn-soft btn-sm" onclick="saveDiscoverSettings()">Save discovery settings</button>
+        </div>
+        <div class="settings-section">
+            <h4>Text-to-speech</h4>
+            <div id="settingsTtsInfo" style="font-size:0.75rem;color:var(--g60)">Checking...</div>
+        </div>
+        <div class="settings-section">
+            <h4>System health</h4>
+            <div class="health-dots" id="settingsHealth"></div>
+        </div>
     </div>
-    <div class="summary-body" id="summaryBody"><div style="text-align:center;padding:3rem;color:var(--text-muted)">Click "Generate Summary" to create a study guide from your sources.</div></div>
 </div>
 
+<div class="modal-overlay" id="modal-discover">
+    <div class="modal" style="max-width:640px">
+        <h3><i data-lucide="globe" class="icon" style="width:16px;height:16px"></i> Discover sources <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <p style="font-size:0.7rem;color:var(--g50);margin-bottom:0.75rem">Search the web based on your notebook topic. Select URLs to ingest.</p>
+        <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem">
+            <input class="input" id="discoverQuery" placeholder="Search query (auto-filled from notebook)" style="flex:1">
+            <button class="btn btn-soft btn-sm" onclick="runDiscoverSearch()">Search</button>
+        </div>
+        <div id="discoverStatus"></div>
+        <div id="discoverResults" style="max-height:320px;overflow-y:auto;margin:0.5rem 0"></div>
+        <div style="display:flex;gap:0.5rem">
+            <button class="btn btn-primary btn-sm" onclick="ingestSelectedDiscover()">Ingest selected</button>
+            <button class="btn btn-ghost btn-sm" onclick="closeModals()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Quill -->
 <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
+
+<!-- WebGL Tessellation Engine -->
+<script>
+(function() {
+    const canvas = document.getElementById('geo-canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!gl) return;
+
+    let W, H, mouse = { x: 0.5, y: 0.5 };
+
+    function resize() {
+        W = canvas.width = window.innerWidth;
+        H = canvas.height = window.innerHeight;
+        gl.viewport(0, 0, W, H);
+    }
+
+    const vsSource = `
+        attribute vec2 a_position;
+        void main() {
+            gl_Position = vec4(a_position, 0.0, 1.0);
+        }
+    `;
+
+    const fsSource = `
+        precision mediump float;
+        uniform float u_time;
+        uniform vec2 u_resolution;
+        uniform vec2 u_mouse;
+
+        float hash(vec2 p) {
+            p = fract(p * vec2(127.1, 311.7));
+            p += dot(p, p + 45.32);
+            return fract(p.x * p.y);
+        }
+
+        float noise(vec2 p) {
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            float a = hash(i);
+            float b = hash(i + vec2(1.0, 0.0));
+            float c = hash(i + vec2(0.0, 1.0));
+            float d = hash(i + vec2(1.0, 1.0));
+            return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+
+        float triGrid(vec2 p, float scale) {
+            p *= scale;
+            vec2 q = vec2(p.x + p.y * 0.5, p.y * 0.866);
+            vec2 qi = floor(q);
+            vec2 qf = fract(q);
+            float d = min(min(qf.x, qf.y), min(1.0 - qf.x, 1.0 - qf.y));
+            float line = smoothstep(0.02, 0.04, d);
+            return 1.0 - line;
+        }
+
+        float diamondGrid(vec2 p, float scale) {
+            p *= scale;
+            vec2 r = p;
+            r = vec2(r.x + r.y, r.x - r.y) * 0.707;
+            vec2 f = fract(r);
+            float d = min(min(f.x, f.y), min(1.0 - f.x, 1.0 - f.y));
+            return 1.0 - smoothstep(0.015, 0.04, d);
+        }
+
+        float fractalTess(vec2 p, float t) {
+            float v = 0.0;
+            float amp = 0.5;
+            vec2 pp = p;
+            for (int i = 0; i < 5; i++) {
+                float angle = t * 0.07 * float(i + 1);
+                mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+                pp = rot * pp;
+                float tri = triGrid(pp + vec2(t * 0.02 * float(i), 0.0), 3.0 + float(i) * 1.5);
+                float dia = diamondGrid(pp + vec2(0.0, t * 0.015 * float(i)), 2.5 + float(i));
+                v += amp * mix(tri, dia, noise(p * 2.0 + t * 0.03));
+                amp *= 0.55;
+                pp *= 1.7;
+            }
+            return v;
+        }
+
+        void main() {
+            vec2 uv = gl_FragCoord.xy / u_resolution;
+            uv.y = 1.0 - uv.y;
+
+            // Cursor distortion
+            vec2 toMouse = uv - u_mouse;
+            float dist = length(toMouse);
+            float strength = 0.04 * smoothstep(0.25, 0.0, dist);
+            vec2 distorted = uv + normalize(toMouse + 0.001) * strength * (1.0 - dist * 4.0);
+
+            float t = u_time;
+            float geo = fractalTess(distorted * 2.0 - 1.0, t);
+
+            // Noise dissolve layer
+            float n1 = noise(distorted * 12.0 + t * 0.1);
+            float n2 = noise(distorted * 5.0 - t * 0.05);
+
+            // Build monochrome value
+            float v = geo * 0.7 + n1 * 0.12 + n2 * 0.06;
+
+            // Edge vignette
+            float vignette = 1.0 - smoothstep(0.3, 1.2, length((uv - 0.5) * vec2(1.4, 1.8)));
+            v *= vignette;
+
+            // Keep it very dark — just enough texture to feel alive
+            float brightness = v * 0.08;
+            vec3 matte = vec3(0.102, 0.102, 0.114);
+            gl_FragColor = vec4(matte + vec3(brightness), 1.0);
+        }
+    `;
+
+    function compileShader(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        return s;
+    }
+
+    const vs = compileShader(gl.VERTEX_SHADER, vsSource);
+    const fs = compileShader(gl.FRAGMENT_SHADER, fsSource);
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+
+    const posLoc = gl.getAttribLocation(prog, 'a_position');
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+    const uTime = gl.getUniformLocation(prog, 'u_time');
+    const uRes = gl.getUniformLocation(prog, 'u_resolution');
+    const uMouse = gl.getUniformLocation(prog, 'u_mouse');
+
+    resize();
+    window.addEventListener('resize', resize);
+
+    // Smooth mouse tracking
+    let targetMouse = { x: 0.5, y: 0.5 };
+    document.addEventListener('mousemove', e => {
+        targetMouse.x = e.clientX / window.innerWidth;
+        targetMouse.y = e.clientY / window.innerHeight;
+    });
+
+    let startTime = Date.now();
+    function render() {
+        // Lerp mouse for smooth distortion
+        mouse.x += (targetMouse.x - mouse.x) * 0.06;
+        mouse.y += (targetMouse.y - mouse.y) * 0.06;
+
+        const t = (Date.now() - startTime) / 1000;
+        gl.uniform1f(uTime, t);
+        gl.uniform2f(uRes, W, H);
+        gl.uniform2f(uMouse, mouse.x, mouse.y);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        requestAnimationFrame(render);
+    }
+    render();
+})();
+</script>
+
+<!-- App Logic (original, unmodified) -->
 <script>
 const API = '';
-let activeNotebookId = null, notebooks = [], sources = [], chatHistory = [], notes = [], currentNoteId = null, isLoading = false, quill = null, currentSpeech = null;
-let followupContext = '', selectedChatText = '', grammarTimer = null;
+let activeNotebookId = null, notebooks = [], sources = [], chatHistory = [], notes = [], currentNoteId = null, isLoading = false, quill = null, currentSpeech = null, currentAudio = null, ttsAvailable = false, discoverEnabled = false, discoverCandidates = [];
+let followupContext = '', selectedChatText = '', grammarTimer = null, currentSourceId = null, currentSourceData = null, docSaveTimer = null, highlightChunkIndex = null;
+const ONBOARDING_KEY = 'carnetlm_onboarding_dismissed';
 
 document.addEventListener('DOMContentLoaded', async () => {
-    initQuill(); await loadNotebooks(); await loadModels(); setupDragDrop();
+    initQuill(); await loadNotebooks(); await loadModels(); await checkTTS(); setupDragDrop();
     document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeModals(); }));
     document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModals(); dismissAI(); } });
-    // Chat text selection handler
     document.getElementById('chatMessages').addEventListener('mouseup', handleChatSelection);
+    document.getElementById('chatMessages').addEventListener('click', handleCitationClick);
     document.addEventListener('mousedown', e => { if (!e.target.closest('.selection-popup')) document.getElementById('selectionPopup').classList.remove('active'); });
+    refreshIcons();
 });
 
 function initQuill() {
     quill = new Quill('#quillEditor', { theme: 'snow', placeholder: 'Start writing your document...', modules: { toolbar: [[{header:[1,2,3,false]}],['bold','italic','underline','strike'],[{list:'ordered'},{list:'bullet'}],['blockquote','code-block'],['link'],['clean']] } });
-    quill.on('text-change', () => { const t = quill.getText().trim(); document.getElementById('wordCount').textContent = t ? t.split(/\s+/).length + ' words' : '0 words'; });
+    quill.on('text-change', () => {
+        const t = quill.getText().trim();
+        document.getElementById('wordCount').textContent = t ? t.split(/\s+/).length + ' words' : '0 words';
+        scheduleDocumentSave();
+    });
     quill.on('selection-change', (range) => {
         if (range && range.length > 0) {
             const bounds = quill.getBounds(range.index, range.length);
@@ -510,7 +530,6 @@ function initQuill() {
             panel.classList.add('active');
             document.getElementById('aiResult').style.display = 'none';
             document.getElementById('aiResultActions').style.display = 'none';
-            // Auto grammar check with debounce
             const gs = document.getElementById('grammarStatus');
             gs.className = 'ai-grammar-status checking'; document.getElementById('grammarIcon').textContent = '⏳'; document.getElementById('grammarText').textContent = 'Checking...';
             clearTimeout(grammarTimer);
@@ -521,7 +540,6 @@ function initQuill() {
     });
 }
 
-// ─── Auto Grammar Check ───────────────────────────
 async function autoGrammarCheck(text) {
     if (!text || text.trim().length < 3) return;
     const gs = document.getElementById('grammarStatus');
@@ -537,7 +555,6 @@ async function autoGrammarCheck(text) {
         } else {
             gs.className = 'ai-grammar-status bad'; document.getElementById('grammarIcon').textContent = '⚠'; document.getElementById('grammarText').textContent = 'Suggestions available — click to see';
             window._grammarResult = result;
-            // Auto-show the suggestion
             document.getElementById('grammarSugText').textContent = result;
             document.getElementById('grammarSuggestion').classList.add('active');
         }
@@ -565,11 +582,8 @@ function acceptGrammar() {
     document.getElementById('grammarText').textContent = 'Correction applied';
 }
 
-function dismissGrammar() {
-    document.getElementById('grammarSuggestion').classList.remove('active');
-}
+function dismissGrammar() { document.getElementById('grammarSuggestion').classList.remove('active'); }
 
-// ─── Chat Text Selection ──────────────────────────
 function handleChatSelection(e) {
     const sel = window.getSelection();
     const text = sel?.toString().trim();
@@ -601,21 +615,19 @@ function doAddToNote() {
 }
 
 function showNotePickerForText(text) {
-    window._pendingNoteTexts = window._pendingNoteTexts || {};
-    const textId = 'nt_' + Date.now();
-    window._pendingNoteTexts[textId] = text;
     const sel = document.getElementById('noteSelector');
-    let html = notes.map(n => `<div class="note-selector-item" onclick="appendToNoteAndOpen(${n.id}, '${textId}')">${esc(n.title)}</div>`).join('');
-    html += `<div class="note-selector-item note-selector-new" onclick="openNewNoteModal('${textId}')">+ New Note</div>`;
+    const enc = btoa(encodeURIComponent(text));
+    let html = notes.map(n => `<div class="note-selector-item" onclick="appendToNoteAndOpen(${n.id}, '${enc}')">${esc(n.title)}</div>`).join('');
+    html += `<div class="note-selector-item note-selector-new" onclick="openNewNoteModal('${enc}')">+ New Note</div>`;
     sel.innerHTML = html;
     sel.style.top = '50%'; sel.style.left = '50%'; sel.style.transform = 'translate(-50%,-50%)';
     sel.classList.add('active');
     setTimeout(() => document.addEventListener('click', () => sel.classList.remove('active'), { once: true }), 10);
 }
 
-function openNewNoteModal(textId) {
+function openNewNoteModal(enc) {
     document.getElementById('noteSelector').classList.remove('active');
-    window._pendingNoteText = (window._pendingNoteTexts && window._pendingNoteTexts[textId]) || '';
+    window._pendingNoteText = decodeURIComponent(atob(enc));
     document.getElementById('newNoteNameInput').value = '';
     openModal('newNote');
     document.getElementById('newNoteNameInput').focus();
@@ -628,12 +640,11 @@ async function saveNewNoteFromChat() {
     closeModals(); await loadNotes();
 }
 
-async function appendToNoteAndOpen(noteId, textId) {
-    const text = (window._pendingNoteTexts && window._pendingNoteTexts[textId]) || '';
+async function appendToNoteAndOpen(noteId, enc) {
+    const text = decodeURIComponent(atob(enc));
     document.getElementById('noteSelector').classList.remove('active');
     await fetch(`${API}/api/notes/${noteId}/append`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ text }) });
     await loadNotes();
-    // Open note and highlight the new text
     switchTab('notes');
     const res = await fetch(`${API}/api/notes/${noteId}`); const note = await res.json();
     currentNoteId = noteId;
@@ -641,398 +652,693 @@ async function appendToNoteAndOpen(noteId, textId) {
     document.getElementById('noteContentArea').value = note.content || '';
     document.getElementById('notesListView').style.display = 'none';
     document.getElementById('noteEditorView').classList.add('active');
-    // Select the newly added text at the bottom
     const ta = document.getElementById('noteContentArea');
     const start = (note.content || '').length - text.length;
     ta.focus(); ta.setSelectionRange(Math.max(0, start), (note.content || '').length);
     ta.scrollTop = ta.scrollHeight;
 }
 
-// ─── Notebooks ─────────────────────────────────────
 async function loadNotebooks() {
     try { const res = await fetch(`${API}/api/notebooks`); const data = await res.json(); notebooks = data.notebooks || [];
+        if (activeNotebookId && !notebooks.some(nb => nb.id === activeNotebookId)) activeNotebookId = null;
         if (!activeNotebookId && notebooks.length) activeNotebookId = notebooks[0].id;
-        renderNotebooks(); await Promise.all([loadSources(), loadHistory(), loadNotes()]);
+        renderNotebooks();
+        if (activeNotebookId) await Promise.all([loadSources(), loadHistory(), loadNotes(), loadDocument(), updateDiscoverButton()]);
+        else { sources = []; chatHistory = []; notes = []; renderSources(); renderChat(); renderNotes(); document.getElementById('notesBadge').textContent = '0'; closeNoteEditor(); }
     } catch (e) { console.error(e); }
 }
 function renderNotebooks() {
-    document.getElementById('notebookList').innerHTML = notebooks.map(nb => `<div class="nb-item ${nb.id === activeNotebookId ? 'active' : ''}" onclick="switchNotebook(${nb.id})"><span style="font-size:0.875rem">📓</span><span class="nb-name">${esc(nb.name)}</span><span class="nb-badge">${nb.chats}</span><button class="nb-delete" onclick="event.stopPropagation();deleteNotebook(${nb.id})" title="Delete">✕</button></div>`).join('');
+    const el = document.getElementById('notebookList');
+    if (!notebooks.length) { el.innerHTML = '<div style="padding:0.5rem;font-size:0.5rem;color:var(--g25, #404040);text-align:center;font-family:var(--font-mono);letter-spacing:0.08em">NO NOTEBOOKS</div>'; return; }
+    el.innerHTML = notebooks.map(nb => `<div class="nb-item ${nb.id === activeNotebookId ? 'active' : ''}" onclick="switchNotebook(${nb.id})"><i data-lucide="book" class="icon" style="width:14px;height:14px;opacity:0.5"></i><span class="nb-name">${esc(nb.name)}</span><span class="nb-badge">${nb.chats}</span><button class="nb-delete" onclick="event.stopPropagation();deleteNotebook(${nb.id})" title="Delete"><i data-lucide="x" class="icon" style="width:12px;height:12px"></i></button></div>`).join('');
+    refreshIcons(el);
 }
-async function switchNotebook(id) { activeNotebookId = id; renderNotebooks(); await Promise.all([loadSources(), loadHistory(), loadNotes()]); closeNoteEditor(); }
+async function switchNotebook(id) { activeNotebookId = id; renderNotebooks(); await Promise.all([loadSources(), loadHistory(), loadNotes(), loadDocument(), updateDiscoverButton()]); closeNoteEditor(); }
 async function createNotebook() { const n = prompt('Notebook name:'); if (!n) return; await fetch(`${API}/api/notebooks`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:n}) }); await loadNotebooks(); }
 async function deleteNotebook(id) { if (!confirm('Delete this notebook?')) return; const r = await fetch(`${API}/api/notebooks/${id}`, {method:'DELETE'}); if (r.ok) { if (activeNotebookId===id) activeNotebookId=null; await loadNotebooks(); } else { const e=await r.json(); alert(e.detail||'Cannot delete'); } }
 
-// ─── Models ────────────────────────────────────────
 async function loadModels() {
-    try { const res = await fetch(`${API}/api/models`); const data = await res.json(); const sel = document.getElementById('modelSelect'); const st = document.getElementById('modelStatus');
-        let options = '';
-        // Show Gemini as primary if available
-        if (data.gemini_available && data.gemini) {
-            options += `<option value="gemini-2.5-flash" ${data.active_provider==='gemini'?'selected':''}>✨ Gemini 2.5 Flash (API)</option>`;
+    try {
+        const res = await fetch(`${API}/api/models`);
+        const data = await res.json();
+        const sel = document.getElementById('modelSelect');
+        const st = document.getElementById('modelStatus');
+        let opts = '';
+        if (data.gemini) {
+            opts += `<option value="${data.gemini.name}" ${data.gemini.active ? 'selected' : ''}>${data.gemini.name} (Cloud)</option>`;
         }
         if (data.ollama_available && data.models.length) {
-            options += data.models.map(m => `<option value="${m.name}" ${m.active&&data.active_provider==='ollama'?'selected':''}>${m.name} (${m.size})</option>`).join('');
+            opts += data.models.map(m => `<option value="${m.name}" ${m.active && data.active_provider === 'ollama' ? 'selected' : ''}>${m.name} (${m.size})</option>`).join('');
         }
-        if (options) {
-            sel.innerHTML = options;
-            st.className='model-status online'; st.textContent=`● ${data.active_provider === 'gemini' ? 'Gemini API' : 'Ollama'} active`;
-        } else {
-            sel.innerHTML='<option>No models available</option>'; st.className='model-status offline'; st.textContent='○ Not configured';
-        }
-    } catch { document.getElementById('modelStatus').className='model-status offline'; document.getElementById('modelStatus').textContent='○ Error'; }
+        if (!opts) opts = '<option value="">No models</option>';
+        sel.innerHTML = opts;
+        const online = data.ollama_available || data.gemini_available;
+        st.className = online ? 'model-status online' : 'model-status offline';
+        st.textContent = online ? '● CONNECTED' : '○ NOT RUNNING';
+    } catch {
+        document.getElementById('modelStatus').className = 'model-status offline';
+        document.getElementById('modelStatus').textContent = '○ ERROR';
+    }
 }
-async function selectModel(m) { if (!m) return; await fetch(`${API}/api/models/select`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:m})}); }
+async function selectModel(m) {
+    if (!m) return;
+    const r = await fetch(`${API}/api/models/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m }) });
+    if (r.ok) await loadModels();
+}
+async function checkTTS() {
+    try { const r = await fetch(`${API}/api/tts/health`); const d = await r.json(); ttsAvailable = !!d.available; } catch { ttsAvailable = false; }
+}
 function switchTab(tab) { document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab)); document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id===`panel-${tab}`)); }
 
-// ─── Sources ───────────────────────────────────────
 async function loadSources() { try { const r=await fetch(`${API}/api/sources?notebook_id=${activeNotebookId}`); const d=await r.json(); sources=d.sources||[]; renderSources(); } catch(e){console.error(e);} }
 function renderSources() {
     document.getElementById('sourceCount').textContent = sources.length;
     const el = document.getElementById('sourceList');
-    if (!sources.length) { el.innerHTML='<div style="padding:0.5rem;font-size:0.6875rem;color:var(--text-muted);text-align:center">No sources yet</div>'; return; }
-    el.innerHTML = sources.map(s => { const ic=s.type==='Website'?'web':s.type==='YouTube'?'yt':s.type==='Clipboard'?'doc':'doc'; const em=s.type==='Website'?'🌐':s.type==='YouTube'?'🎥':s.type==='Clipboard'?'📋':'📄';
-        const refreshBtn = (s.type==='Website'||s.type==='YouTube') ? `<button class="src-del" onclick="event.stopPropagation();refreshSource(${s.id})" title="Refresh" style="color:var(--accent)">↻</button>` : '';
-        return `<div class="src-item" onclick="viewSource(${s.id},'${esc(s.name).replace(/'/g,"\\'")}')" style="cursor:pointer"><div class="src-icon src-icon-${ic}">${em}</div><span class="src-name" title="${esc(s.name)}">${esc(s.name)}</span>${refreshBtn}<button class="src-del" onclick="event.stopPropagation();deleteSource(${s.id})">✕</button></div>`;
+    if (!sources.length) { el.innerHTML='<div style="padding:0.5rem;font-size:0.5rem;color:var(--g25, #404040);text-align:center;font-family:var(--font-mono);letter-spacing:0.08em">No sources</div>'; renderOnboarding(); return; }
+    el.innerHTML = sources.map(s => {
+        const ic = sourceIcon(s.type);
+        const status = s.index_status && s.index_status !== 'ready' ? ` · ${s.index_status}` : '';
+        return `<div class="src-item" onclick="openSourceViewer(${s.id})" style="cursor:pointer"><div class="src-icon"><i data-lucide="${ic}" class="icon" style="width:14px;height:14px"></i></div><span class="src-name" title="${esc(s.name)}">${esc(s.name)}${status ? `<span style="color:var(--g40);font-size:0.55rem">${esc(status)}</span>` : ''}</span><button class="src-del" onclick="event.stopPropagation();deleteSource(${s.id})"><i data-lucide="x" class="icon" style="width:12px;height:12px"></i></button></div>`;
     }).join('');
+    refreshIcons(el);
+    renderOnboarding();
 }
 async function deleteSource(id) { await fetch(`${API}/api/sources/${id}`,{method:'DELETE'}); await loadSources(); }
 
-// ─── Chat ──────────────────────────────────────────
 async function loadHistory() { try { const r=await fetch(`${API}/api/history?notebook_id=${activeNotebookId}`); const d=await r.json(); chatHistory=d.history||[]; renderChat(); } catch(e){console.error(e);} }
 
 function renderChat() {
     const el = document.getElementById('chatMessages');
-    if (!chatHistory.length) { el.innerHTML='<div class="chat-empty"><div class="chat-empty-icon">💬</div><h3>Ask anything about your documents</h3><p>Upload sources, then ask questions for cited answers.</p></div>'; return; }
+    if (!chatHistory.length) {
+        el.innerHTML='<div class="chat-empty"><div class="chat-empty-icon"><i data-lucide="messages-square" style="width:32px;height:32px;opacity:0.2"></i></div><h3>Ask anything about your documents</h3><p>Upload sources, then query for cited answers from your local model.</p></div>';
+        refreshIcons(el);
+        renderOnboarding();
+        return;
+    }
+    window._citationData = {};
+    _citationCounter = 0;
     el.innerHTML = chatHistory.map((msg, i) => {
         if (msg.role === 'user') return `<div class="msg msg-user"><div class="msg-bubble">${esc(msg.content)}</div></div>`;
         let html = formatResponse(msg.content, msg.sources);
         let srcTags = '';
         if (msg.sources?.length) { const uniq=[...new Map(msg.sources.map(s=>[s.source_file,s])).values()]; srcTags=`<div class="msg-sources">${uniq.map(s=>`<span class="msg-source-tag">${esc(s.source_file)}</span>`).join('')}</div>`; }
-        return `<div class="msg msg-assistant"><div class="msg-bubble">${html}${srcTags}</div><div class="msg-actions"><button class="msg-action-btn" onclick="speakText(this,${i})" title="Read aloud">🔊</button><button class="msg-action-btn" onclick="showNoteSelector(event,${i})" title="Save to note">📝 Note</button></div></div>`;
+        return `<div class="msg msg-assistant"><div class="msg-bubble">${html}${srcTags}</div><div class="msg-actions"><button class="msg-action-btn" onclick="speakText(this,${i})" title="Read aloud"><i data-lucide="volume-2" class="icon" style="width:12px;height:12px"></i> Speak</button><button class="msg-action-btn" onclick="showNoteSelector(event,${i})" title="Save to note"><i data-lucide="bookmark-plus" class="icon" style="width:12px;height:12px"></i> Note</button></div></div>`;
     }).join('');
+    refreshIcons(el);
     el.scrollTop = el.scrollHeight;
+    renderOnboarding();
 }
 
 async function sendMessage(e) {
-    e.preventDefault(); const input=document.getElementById('chatInput'); let query=input.value.trim(); if (!query||isLoading) return;
-    // Add followup context
+    e.preventDefault(); if (!activeNotebookId) { alert('Create a notebook first'); return; }
+    const input = document.getElementById('chatInput');
+    let query = input.value.trim();
+    if (!query || isLoading) return;
+    let displayQuery = query;
     if (followupContext) { query = `Regarding this text: "${followupContext}"\n\n${query}`; clearFollowup(); }
-    chatHistory.push({role:'user',content:query,sources:[]});
-    renderChat(); input.value=''; isLoading=true; document.getElementById('sendBtn').disabled=true;
-    const msgs=document.getElementById('chatMessages');
-    const ld=document.createElement('div'); ld.className='msg-loading'; ld.innerHTML='<div class="loading-dots"><span></span><span></span><span></span></div>&nbsp; Thinking...'; msgs.appendChild(ld); msgs.scrollTop=msgs.scrollHeight;
-
+    chatHistory.push({ role: 'user', content: displayQuery, sources: [] });
+    renderChat(); input.value = ''; isLoading = true; document.getElementById('sendBtn').disabled = true;
+    const msgs = document.getElementById('chatMessages');
+    const streamMsg = document.createElement('div');
+    streamMsg.className = 'msg msg-assistant';
+    streamMsg.innerHTML = '<div class="msg-bubble" id="streamBubble"><span class="stream-cursor"></span></div>';
+    msgs.appendChild(streamMsg);
+    msgs.scrollTop = msgs.scrollHeight;
+    const bubble = document.getElementById('streamBubble');
+    let fullText = '';
+    let sourcesUsed = [];
     try {
-        const r = await fetch(`${API}/api/chat`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({query, notebook_id: activeNotebookId})
-        });
-
-        if (r.ok) {
-            ld.remove();
-            const d = await r.json();
-            chatHistory.push({role:'assistant',content:d.response,sources:d.sources_used||[]});
-            renderChat();
-        } else {
-            ld.remove();
-            const e = await r.json();
-            chatHistory.push({role:'assistant',content:`Error: ${e.detail || 'Unknown error'}`,sources:[]});
-            renderChat();
+        const r = await fetch(`${API}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, notebook_id: activeNotebookId }) });
+        if (!r.ok) throw new Error('Stream failed');
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop() || '';
+            for (const part of parts) {
+                const lines = part.split('\n');
+                let eventType = 'message', dataStr = '';
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) eventType = line.slice(7);
+                    else if (line.startsWith('data: ')) dataStr = line.slice(6);
+                }
+                if (!dataStr) continue;
+                let data;
+                try { data = JSON.parse(dataStr); } catch { continue; }
+                if (eventType === 'token' && data.text) {
+                    fullText += data.text;
+                    bubble.innerHTML = formatResponse(fullText, sourcesUsed) + '<span class="stream-cursor"></span>';
+                    msgs.scrollTop = msgs.scrollHeight;
+                } else if (eventType === 'meta' || eventType === 'done') {
+                    if (data.sources_used) sourcesUsed = data.sources_used;
+                } else if (eventType === 'error') {
+                    throw new Error(data.message || 'Stream error');
+                }
+            }
         }
-    } catch(err) {
-        chatHistory.push({role:'assistant',content:`Error: ${err.message}`,sources:[]});
-        renderChat();
-    } finally {
-        isLoading=false; document.getElementById('sendBtn').disabled=false;
-        // Remove loading indicator if still present
-        const loader = msgs.querySelector('.msg-loading');
-        if (loader) loader.remove();
-        msgs.scrollTop = msgs.scrollHeight;
-    }
+        chatHistory.push({ role: 'assistant', content: fullText || 'No response', sources: sourcesUsed });
+    } catch (err) {
+        chatHistory.push({ role: 'assistant', content: `Error: ${err.message}`, sources: [] });
+    } finally { isLoading = false; document.getElementById('sendBtn').disabled = false; renderChat(); }
 }
 
-// ─── TTS ───────────────────────────────────────────
-function speakText(btn, i) { if (currentSpeech){speechSynthesis.cancel();currentSpeech=null;btn.classList.remove('speaking');btn.textContent='🔊';return;} const t=chatHistory[i]?.content; if(!t)return; const c=t.replace(/\[(\d+)\]/g,'').replace(/\*\*/g,''); const u=new SpeechSynthesisUtterance(c); u.rate=1; btn.classList.add('speaking');btn.textContent='⏸'; currentSpeech=u; u.onend=()=>{currentSpeech=null;btn.classList.remove('speaking');btn.textContent='🔊';}; speechSynthesis.speak(u); }
+async function speakText(btn, i) {
+    const speakHtml = '<i data-lucide="volume-2" class="icon" style="width:12px;height:12px"></i> Speak';
+    const stopHtml = '<i data-lucide="pause" class="icon" style="width:12px;height:12px"></i> Stop';
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; btn.classList.remove('speaking'); btn.innerHTML = speakHtml; refreshIcons(btn); return; }
+    if (currentSpeech) { speechSynthesis.cancel(); currentSpeech = null; btn.classList.remove('speaking'); btn.innerHTML = speakHtml; refreshIcons(btn); return; }
+    const t = chatHistory[i]?.content; if (!t) return;
+    btn.classList.add('speaking'); btn.innerHTML = stopHtml; refreshIcons(btn);
+    if (ttsAvailable) {
+        try {
+            const r = await fetch(`${API}/api/tts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t }) });
+            if (r.ok) {
+                const blob = await r.blob();
+                currentAudio = new Audio(URL.createObjectURL(blob));
+                currentAudio.onended = () => { currentAudio = null; btn.classList.remove('speaking'); btn.innerHTML = speakHtml; refreshIcons(btn); };
+                currentAudio.play();
+                return;
+            }
+        } catch (e) { console.warn('Orpheus TTS failed, using browser fallback', e); }
+    }
+    const c = t.replace(/\[(\d+)\]/g, '').replace(/\*\*/g, '');
+    const u = new SpeechSynthesisUtterance(c); u.rate = 1; currentSpeech = u;
+    u.onend = () => { currentSpeech = null; btn.classList.remove('speaking'); btn.innerHTML = speakHtml; refreshIcons(btn); };
+    speechSynthesis.speak(u);
+}
 
-// ─── Notes ─────────────────────────────────────────
 async function loadNotes() { if(!activeNotebookId)return; try{const r=await fetch(`${API}/api/notebooks/${activeNotebookId}/notes`);const d=await r.json();notes=d.notes||[];document.getElementById('notesBadge').textContent=notes.length;renderNotes();}catch(e){console.error(e);} }
 function renderNotes() {
     const el=document.getElementById('notesList');
-    if(!notes.length){el.innerHTML='<div style="text-align:center;padding:3rem;color:var(--text-muted);font-size:0.8125rem"><p style="font-size:1.5rem;margin-bottom:0.5rem">📝</p><p>No notes yet</p></div>';return;}
+    if(!notes.length){el.innerHTML='<div style="text-align:center;padding:3rem;color:var(--g30);font-size:0.5rem;font-family:var(--font-mono);letter-spacing:0.1em">NO NOTES YET</div>';return;}
     el.innerHTML=notes.map(n=>`<div class="note-card" onclick="openNote(${n.id})"><div class="note-card-title">${esc(n.title)}</div><div class="note-card-preview">${esc(n.preview||'')}</div><div class="note-card-meta">${new Date(n.updated_at).toLocaleDateString()}</div></div>`).join('');
 }
 async function createNote() { const id=await fetch(`${API}/api/notebooks/${activeNotebookId}/notes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Untitled Note',content:''})}).then(r=>r.json()).then(d=>d.id); await loadNotes(); openNote(id); }
-async function openNote(id) { const r=await fetch(`${API}/api/notes/${id}`);const note=await r.json(); currentNoteId=id; document.getElementById('noteTitleInput').value=note.title; document.getElementById('noteContentArea').value=note.content||''; document.getElementById('notesListView').style.display='none'; document.getElementById('noteEditorView').classList.add('active'); }
+async function openNote(id) { const r=await fetch(`${API}/api/notes/${id}`);const note=await r.json(); currentNoteId=id; document.getElementById('noteTitleInput').value=note.title; document.getElementById('noteContentArea').value=note.content||''; document.getElementById('notesListView').style.display='none'; document.getElementById('noteEditorView').classList.add('active'); updateNoteIndexBtn(note.indexed_in_rag); }
+function updateNoteIndexBtn(indexed) {
+    const btn = document.getElementById('noteIndexBtn');
+    if (!btn) return;
+    btn.dataset.indexed = indexed ? '1' : '0';
+    btn.innerHTML = indexed
+        ? '<i data-lucide="database" class="icon" style="width:12px;height:12px"></i> Indexed'
+        : '<i data-lucide="database" class="icon" style="width:12px;height:12px"></i> Index';
+    refreshIcons(btn);
+}
+async function toggleNoteIndex() {
+    if (!currentNoteId) return;
+    await fetch(`${API}/api/notes/${currentNoteId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: document.getElementById('noteTitleInput').value, content: document.getElementById('noteContentArea').value }) });
+    const indexed = document.getElementById('noteIndexBtn').dataset.indexed === '1';
+    await fetch(`${API}/api/notes/${currentNoteId}/index`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ indexed: !indexed }) });
+    updateNoteIndexBtn(!indexed);
+}
 function closeNoteEditor() { currentNoteId=null; document.getElementById('notesListView').style.display=''; document.getElementById('noteEditorView').classList.remove('active'); }
 async function saveAndCloseNote() { if(!currentNoteId)return; await fetch(`${API}/api/notes/${currentNoteId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:document.getElementById('noteTitleInput').value,content:document.getElementById('noteContentArea').value})}); closeNoteEditor(); await loadNotes(); }
+
+async function loadDocument() {
+    if (!activeNotebookId || !quill) return;
+    try {
+        const r = await fetch(`${API}/api/notebooks/${activeNotebookId}/document`);
+        const d = await r.json();
+        if (d.html_content) quill.root.innerHTML = d.html_content;
+        else quill.setText('');
+    } catch (e) { console.error(e); }
+}
+function scheduleDocumentSave() {
+    if (!activeNotebookId) return;
+    clearTimeout(docSaveTimer);
+    docSaveTimer = setTimeout(async () => {
+        try {
+            await fetch(`${API}/api/notebooks/${activeNotebookId}/document`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ html_content: quill.root.innerHTML, title: 'Document' }),
+            });
+        } catch (e) { console.error('Doc save failed', e); }
+    }, 2000);
+}
 async function deleteCurrentNote() { if(!currentNoteId||!confirm('Delete?'))return; await fetch(`${API}/api/notes/${currentNoteId}`,{method:'DELETE'}); closeNoteEditor(); await loadNotes(); }
 
 function showNoteSelector(event, i) { event.stopPropagation(); const text=chatHistory[i]?.content||''; showNotePickerForText(text); }
 
-// ─── Editor ────────────────────────────────────────
 async function insertNoteIntoEditor() { if(!notes.length){alert('No notes');return;} const sel=document.getElementById('noteSelector'); sel.innerHTML=notes.map(n=>`<div class="note-selector-item" onclick="doInsertNote(${n.id})">${esc(n.title)}</div>`).join(''); const btn=document.querySelector('.editor-toolbar-custom .btn'); const rect=btn.getBoundingClientRect(); sel.style.top=(rect.bottom+4)+'px'; sel.style.left=rect.left+'px'; sel.style.transform='none'; sel.classList.add('active'); setTimeout(()=>document.addEventListener('click',()=>sel.classList.remove('active'),{once:true}),10); }
 async function doInsertNote(id) { document.getElementById('noteSelector').classList.remove('active'); const r=await fetch(`${API}/api/notes/${id}`); const note=await r.json(); const range=quill.getSelection(true); quill.insertText(range.index,`\n${note.content}\n`,'user'); }
 
-// ─── AI Assist ─────────────────────────────────────
 async function aiAssist(action) {
     const range=quill.getSelection(); if(!range||range.length===0)return;
     const text=quill.getText(range.index,range.length);
     const resultEl=document.getElementById('aiResult'); const actionsEl=document.getElementById('aiResultActions');
-    resultEl.style.display='block'; resultEl.innerHTML='<span style="color:var(--accent)">⏳ Processing...</span>'; actionsEl.style.display='none';
+    resultEl.style.display='block'; resultEl.innerHTML='<span style="color:var(--g50);font-family:var(--font-mono);font-size:0.5625rem;letter-spacing:0.08em">PROCESSING...</span>'; actionsEl.style.display='none';
     try { const r=await fetch(`${API}/api/ai/assist`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,action})}); const d=await r.json();
         resultEl.textContent=d.result; actionsEl.style.display='flex'; window._aiRange=range; window._aiResult=d.result;
-        // Hide Accept for "define" action
         document.getElementById('aiAcceptBtn').style.display = action === 'define' ? 'none' : '';
-    } catch(e) { resultEl.innerHTML=`<span style="color:var(--accent-red)">Error: ${e.message}</span>`; }
+    } catch(e) { resultEl.innerHTML=`<span style="color:var(--g40);font-family:var(--font-mono)">ERR: ${e.message}</span>`; }
 }
 function acceptAI() { if(window._aiRange&&window._aiResult){quill.deleteText(window._aiRange.index,window._aiRange.length);quill.insertText(window._aiRange.index,window._aiResult);} dismissAI(); }
 function dismissAI() { document.getElementById('aiPanel').classList.remove('active'); document.getElementById('aiResult').style.display='none'; document.getElementById('aiResultActions').style.display='none'; document.getElementById('grammarStatus').className='ai-grammar-status'; }
 
-// ─── Export ────────────────────────────────────────
 async function exportDoc(fmt) { const h=quill.root.innerHTML;const t=quill.getText().trim(); if(!t){alert('Editor is empty');return;} try{const r=await fetch(`${API}/api/export`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({html:h,format:fmt,filename:'document'})}); if(!r.ok){const e=await r.json();alert(e.detail);return;} const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=`document.${fmt}`;a.click();URL.revokeObjectURL(u);}catch(e){alert('Export error: '+e.message);} }
 
-// ─── Upload / URL / YouTube ────────────────────────
-async function handleFileUpload(files) { if(!files.length)return; const st=document.getElementById('uploadStatus'); st.innerHTML='<div class="status-msg status-loading">⏳ Processing...</div>'; const fd=new FormData(); for(const f of files)fd.append('files',f); fd.append('notebook_id',activeNotebookId); try{const r=await fetch(`${API}/api/upload`,{method:'POST',body:fd}); const d=await r.json(); const ok=(d.results||[]).filter(r=>r.status==='ok');const err=(d.results||[]).filter(r=>r.error); let h=''; if(ok.length)h+=`<div class="status-msg status-success">✅ ${ok.length} file(s) processed</div>`; if(err.length)h+=`<div class="status-msg status-error">❌ ${err.map(r=>r.error).join(', ')}</div>`; st.innerHTML=h; await loadSources(); if(ok.length)setTimeout(closeModals,1200);}catch(e){st.innerHTML=`<div class="status-msg status-error">❌ ${e.message}</div>`;} }
-async function handleURLSubmit() { const url=document.getElementById('urlInput').value.trim(); if(!url)return; const st=document.getElementById('urlStatus'); st.innerHTML='<div class="status-msg status-loading">⏳ Scraping...</div>'; try{const r=await fetch(`${API}/api/url`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls:[url],notebook_id:activeNotebookId})}); const d=await r.json(); const res=(d.results||[])[0]||{}; if(res.status==='ok'){st.innerHTML=`<div class="status-msg status-success">✅ "${res.title}" — ${res.chunks} chunks</div>`; document.getElementById('urlInput').value=''; await loadSources(); setTimeout(closeModals,1200);} else st.innerHTML=`<div class="status-msg status-error">❌ ${res.error||'Failed'}</div>`;}catch(e){st.innerHTML=`<div class="status-msg status-error">❌ ${e.message}</div>`;} }
-async function handleYouTubeSubmit() { const url=document.getElementById('youtubeInput').value.trim(); if(!url)return; const st=document.getElementById('youtubeStatus'); st.innerHTML='<div class="status-msg status-loading">⏳ Extracting...</div>'; try{const r=await fetch(`${API}/api/youtube`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,notebook_id:activeNotebookId})}); if(r.ok){const d=await r.json();st.innerHTML=`<div class="status-msg status-success">✅ "${d.title}" — ${d.chunks} chunks</div>`;document.getElementById('youtubeInput').value='';await loadSources();setTimeout(closeModals,1200);} else{const e=await r.json();st.innerHTML=`<div class="status-msg status-error">❌ ${e.detail||'Failed'}</div>`;}}catch(e){st.innerHTML=`<div class="status-msg status-error">❌ ${e.message}</div>`;} }
+async function handleFileUpload(files) {
+    if (!files.length) return;
+    const st = document.getElementById('uploadStatus');
+    st.innerHTML = '<div class="status-msg status-loading">UPLOADING...</div>';
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f);
+    fd.append('notebook_id', activeNotebookId);
+    fd.append('chunk_preset', document.getElementById('chunkPresetSelect')?.value || 'auto');
+    try {
+        const r = await fetch(`${API}/api/upload`, { method: 'POST', body: fd });
+        const d = await r.json();
+        const jobIds = d.job_ids || [];
+        if (!jobIds.length) { st.innerHTML = '<div class="status-msg status-error">No jobs started</div>'; return; }
+        pollIngestJobs(jobIds, st);
+    } catch (e) { st.innerHTML = `<div class="status-msg status-error">✕ ${e.message}</div>`; }
+}
+async function pollIngestJobs(jobIds, stEl) {
+    const poll = async () => {
+        const statuses = await Promise.all(jobIds.map(id => fetch(`${API}/api/ingest/jobs/${id}`).then(r => r.json())));
+        const msgs = statuses.map(s => {
+            const chunk = s.chunks_total ? ` · ${s.chunks_done || 0}/${s.chunks_total} chunks` : '';
+            return `${s.source_name}: ${s.message || s.status} (${s.progress || 0}%)${chunk}`;
+        });
+        stEl.innerHTML = `<div class="status-msg status-loading">${msgs.join('<br>')}</div>`;
+        const done = statuses.filter(s => s.status === 'completed' || s.status === 'failed').length;
+        if (done < jobIds.length) { setTimeout(poll, 1000); return; }
+        const failed = statuses.filter(s => s.status === 'failed');
+        if (failed.length) stEl.innerHTML = `<div class="status-msg status-error">✕ ${failed.map(f => f.error).join(', ')}</div>`;
+        else stEl.innerHTML = '<div class="status-msg status-success">✓ FILES PROCESSED</div>';
+        await loadSources();
+        setTimeout(closeModals, 1200);
+    };
+    poll();
+}
+async function handleClipboardSubmit() {
+    const text = document.getElementById('clipboardText').value.trim();
+    const title = document.getElementById('clipboardTitle').value.trim() || 'Pasted Text';
+    const st = document.getElementById('clipboardStatus');
+    if (!text) return;
+    st.innerHTML = '<div class="status-msg status-loading">Processing...</div>';
+    try {
+        const r = await fetch(`${API}/api/clipboard`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, title, notebook_id: activeNotebookId }) });
+        const d = await r.json();
+        const jobIds = d.job_ids || [];
+        if (!jobIds.length) { st.innerHTML = '<div class="status-msg status-error">No jobs started</div>'; return; }
+        pollIngestJobs(jobIds, st);
+    } catch (e) { st.innerHTML = `<div class="status-msg status-error">${e.message}</div>`; }
+}
+async function runSearch() {
+    const q = document.getElementById('searchInput').value.trim();
+    if (!q) return;
+    const el = document.getElementById('searchResults');
+    el.innerHTML = '<div class="status-msg status-loading">SEARCHING...</div>';
+    const r = await fetch(`${API}/api/search`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, notebook_id: activeNotebookId }) });
+    const d = await r.json();
+    el.innerHTML = (d.results || []).map(res => `<div style="border:1px solid var(--g15);padding:0.5rem;margin-bottom:0.5rem;font-size:0.7rem"><strong>${esc(res.source_file)}</strong> <span style="color:var(--g40)">score ${res.score?.toFixed(3)}</span><br>${esc(res.content)}</div>`).join('') || '<div>No results</div>';
+}
+function openCompareModal() {
+    const el = document.getElementById('compareSourceList');
+    el.innerHTML = sources.map(s => `<label style="display:block;font-size:0.7rem;margin:0.25rem 0"><input type="checkbox" class="compare-chk" value="${s.name.replace(/"/g, '&quot;')}"> ${esc(s.name)}</label>`).join('');
+}
+async function runCompare() {
+    const names = [...document.querySelectorAll('.compare-chk:checked')].map(c => c.value);
+    if (names.length < 2) { alert('Select at least 2 sources'); return; }
+    const el = document.getElementById('compareResult');
+    el.textContent = 'Comparing...';
+    const r = await fetch(`${API}/api/compare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_names: names, notebook_id: activeNotebookId }) });
+    const d = await r.json();
+    el.textContent = d.comparison || d.detail || 'Failed';
+}
+async function runSummary() {
+    if (!confirm('Generate study guide from all sources?')) return;
+    switchTab('chat');
+    isLoading = true;
+    try {
+        const r = await fetch(`${API}/api/summary`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notebook_id: activeNotebookId }) });
+        const d = await r.json();
+        chatHistory.push({ role: 'user', content: 'Generate study guide', sources: [] });
+        chatHistory.push({ role: 'assistant', content: d.summary, sources: (d.sources_used || []).map(n => ({ source_file: n })) });
+        renderChat();
+    } catch (e) { alert(e.message); }
+    finally { isLoading = false; }
+}
+async function exportChat(fmt) {
+    const r = await fetch(`${API}/api/chat/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notebook_id: activeNotebookId, format: fmt }) });
+    if (!r.ok) { alert('No chat to export'); return; }
+    const b = await r.blob(); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = `chat.${fmt}`; a.click(); URL.revokeObjectURL(u);
+}
+async function clearChatHistory() {
+    if (!confirm('Clear chat history?')) return;
+    await fetch(`${API}/api/history?notebook_id=${activeNotebookId}`, { method: 'DELETE' });
+    chatHistory = []; renderChat();
+}
+async function openSourceViewer(id, highlightText) {
+    highlightChunkIndex = null;
+    currentSourceId = id;
+    const r = await fetch(`${API}/api/sources/${id}/content`);
+    const d = await r.json();
+    currentSourceData = d;
+    const titleEl = document.getElementById('sourceViewerTitle');
+    titleEl.innerHTML = `<i data-lucide="file-text" class="icon" style="width:16px;height:16px"></i> ${esc(d.source?.name || 'Source')} <button class="modal-close" onclick="closeModals()">&times;</button>`;
+    document.getElementById('sourceViewerMeta').textContent = `${d.total_chunks} chunks · ${d.source?.type || ''}`;
+    const textEl = document.getElementById('sourceEditorText');
+    const pdfEl = document.getElementById('sourcePdfPages');
+    const chunksEl = document.getElementById('sourceChunksView');
+    const saveBtn = document.getElementById('sourceSaveBtn');
+    const refreshBtn = document.getElementById('sourceRefreshBtn');
+    textEl.style.display = 'none'; pdfEl.style.display = 'none'; pdfEl.innerHTML = '';
+    if (chunksEl) chunksEl.style.display = 'none';
+    const isPdf = Object.keys(d.page_text || {}).length > 0;
+    const canEdit = d.editable;
+    saveBtn.style.display = canEdit ? '' : 'none';
+    refreshBtn.style.display = ['Website', 'YouTube'].includes(d.source?.type) ? '' : 'none';
+    if (highlightText && chunksEl) {
+        chunksEl.style.display = 'block';
+        chunksEl.innerHTML = (d.chunks || []).map((c, i) => {
+            const match = highlightText && c.content && (c.content.includes(highlightText.slice(0, 80)) || highlightText.includes(c.content.slice(0, 80)));
+            return `<div class="source-chunk ${match ? 'chunk-highlight' : ''}" data-chunk="${i}" style="margin-bottom:0.75rem;padding:0.5rem;font-size:0.75rem;line-height:1.6;border-bottom:1px solid var(--g15)">${esc(c.content)}</div>`;
+        }).join('');
+        textEl.style.display = 'none';
+        openModal('source');
+        refreshIcons();
+        const hi = chunksEl.querySelector('.chunk-highlight') || chunksEl.querySelector('.source-chunk');
+        if (hi) hi.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
+    if (isPdf && canEdit) {
+        pdfEl.style.display = 'block';
+        pdfEl.innerHTML = '';
+        Object.entries(d.page_text).sort((a, b) => +a[0] - +b[0]).forEach(([p, t]) => {
+            const wrap = document.createElement('div');
+            wrap.style.marginBottom = '0.75rem';
+            const lbl = document.createElement('label');
+            lbl.style.cssText = 'font-size:0.5rem;color:var(--g40)';
+            lbl.textContent = `Page ${p}`;
+            const ta = document.createElement('textarea');
+            ta.className = 'input pdf-page-edit';
+            ta.dataset.page = p;
+            ta.rows = 6;
+            ta.style.cssText = 'width:100%;font-size:0.7rem';
+            ta.value = t;
+            wrap.appendChild(lbl);
+            wrap.appendChild(ta);
+            pdfEl.appendChild(wrap);
+        });
+    } else if (canEdit) {
+        textEl.style.display = 'block';
+        textEl.value = (d.chunks || []).map(c => c.content).join('\n\n');
+    } else {
+        textEl.style.display = 'block'; textEl.readOnly = true;
+        textEl.value = (d.chunks || []).map(c => c.content).join('\n\n');
+        saveBtn.style.display = 'none';
+    }
+    openModal('source');
+    refreshIcons();
+}
+async function saveSourceContent() {
+    if (!currentSourceId) return;
+    const st = document.getElementById('sourceViewerStatus');
+    st.innerHTML = '<div class="status-msg status-loading">RE-INDEXING...</div>';
+    let body = {};
+    const pdfPages = document.querySelectorAll('.pdf-page-edit');
+    if (pdfPages.length) {
+        const page_text = {};
+        pdfPages.forEach(ta => { page_text[ta.dataset.page] = ta.value; });
+        body = { content: Object.values(page_text).join('\n\n'), page_text };
+    } else {
+        body = { content: document.getElementById('sourceEditorText').value };
+    }
+    try {
+        const r = await fetch(`${API}/api/sources/${currentSourceId}/content`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json();
+        st.innerHTML = `<div class="status-msg status-success">✓ Re-indexed (${d.chunks} chunks)</div>`;
+        await loadSources();
+    } catch (e) { st.innerHTML = `<div class="status-msg status-error">✕ ${e.message}</div>`; }
+}
+async function refreshCurrentSource() {
+    if (!currentSourceId) return;
+    await fetch(`${API}/api/sources/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_id: currentSourceId, notebook_id: activeNotebookId }) });
+    await openSourceViewer(currentSourceId); await loadSources();
+}
+async function handleURLSubmit() {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) return;
+    const st = document.getElementById('urlStatus');
+    st.innerHTML = '<div class="status-msg status-loading">Scraping...</div>';
+    try {
+        const r = await fetch(`${API}/api/url`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls: [url], notebook_id: activeNotebookId }) });
+        const d = await r.json();
+        const jobIds = d.job_ids || [];
+        if (!jobIds.length) { st.innerHTML = '<div class="status-msg status-error">No jobs started</div>'; return; }
+        document.getElementById('urlInput').value = '';
+        pollIngestJobs(jobIds, st);
+    } catch (e) { st.innerHTML = `<div class="status-msg status-error">${e.message}</div>`; }
+}
+async function handleYouTubeSubmit() {
+    const url = document.getElementById('youtubeInput').value.trim();
+    if (!url) return;
+    const st = document.getElementById('youtubeStatus');
+    st.innerHTML = '<div class="status-msg status-loading">Extracting...</div>';
+    try {
+        const r = await fetch(`${API}/api/youtube`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, notebook_id: activeNotebookId }) });
+        const d = await r.json();
+        const jobIds = d.job_ids || [];
+        if (!jobIds.length) { st.innerHTML = '<div class="status-msg status-error">No jobs started</div>'; return; }
+        document.getElementById('youtubeInput').value = '';
+        pollIngestJobs(jobIds, st);
+    } catch (e) { st.innerHTML = `<div class="status-msg status-error">${e.message}</div>`; }
+}
 
-// ─── Utils ─────────────────────────────────────────
-// Store citation data globally for tooltip lookups
 window._citationData = {};
 let _citationCounter = 0;
 
 function formatResponse(text, sources) {
-    // First handle citations in raw text before markdown parsing
-    let processed = text;
-    // Replace citation refs [1], [2] with placeholder spans
-    const citationMap = {};
-    processed = processed.replace(/\[(\d+)\]/g, (match, num) => {
+    let html = esc(text);
+    html = html.replace(/\[(\d+)\]/g, (match, num) => {
         const idx = parseInt(num) - 1;
         const src = sources?.[idx];
         const cid = 'c' + (++_citationCounter);
         if (src) {
-            window._citationData[cid] = { file: src.source_file || 'Unknown', page: src.page_number, text: src.text || '' };
-            citationMap[`%%CITE_${cid}%%`] = `<span class="citation-ref" data-cid="${cid}" onmouseenter="showCitation(event,'${cid}')" onmouseleave="hideCitation()">${num}</span>`;
-            return `%%CITE_${cid}%%`;
+            window._citationData[cid] = {
+                file: src.source_file || 'Unknown',
+                page: src.page_number,
+                text: src.text || '',
+                source_id: src.source_id || null,
+            };
+            return `<span class="citation-ref" data-cid="${cid}" onmouseenter="showCitation(event,'${cid}')" onmouseleave="hideCitation()" onclick="jumpToCitation('${cid}')">${num}</span>`;
         }
-        citationMap[`%%CITEBARE_${num}%%`] = `<span class="citation-ref">${num}</span>`;
-        return `%%CITEBARE_${num}%%`;
+        return `<span class="citation-ref">${num}</span>`;
     });
-
-    // Parse markdown with marked.js
-    let html = '';
-    try {
-        if (typeof marked !== 'undefined') {
-            html = marked.parse(processed, { breaks: true, gfm: true });
-        } else {
-            html = esc(processed).split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
-        }
-    } catch {
-        html = esc(processed).split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
-    }
-
-    // Sanitize HTML
-    if (typeof DOMPurify !== 'undefined') {
-        html = DOMPurify.sanitize(html, { ADD_ATTR: ['onmouseenter', 'onmouseleave', 'data-cid'] });
-    }
-
-    // Restore citation spans
-    for (const [placeholder, span] of Object.entries(citationMap)) {
-        html = html.replaceAll(placeholder, span);
-    }
-
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    html = html.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
     return html;
 }
 
-
-
-function hideCitation() {
-    document.getElementById('citationTooltip').classList.remove('visible');
+function handleCitationClick(e) {
+    const ref = e.target.closest('.citation-ref');
+    if (ref?.dataset.cid) jumpToCitation(ref.dataset.cid);
 }
-function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
-function openModal(type) { closeModals(); document.getElementById(`modal-${type}`).classList.add('active'); ['uploadStatus','urlStatus','youtubeStatus','clipboardStatus'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML='';}); }
-function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('active')); }
-function setupDragDrop() { const d=document.getElementById('fileDrop'); if(!d)return; d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('dragover');}); d.addEventListener('dragleave',()=>d.classList.remove('dragover')); d.addEventListener('drop',e=>{e.preventDefault();d.classList.remove('dragover');if(e.dataTransfer.files.length)handleFileUpload(e.dataTransfer.files);}); }
 
-// ─── Source Viewer ─────────────────────────────────────────
-async function viewSource(sourceId, sourceName) {
-    document.getElementById('sourceViewerTitle').textContent = sourceName;
-    document.getElementById('sourceViewerBody').innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted)">Loading...</div>';
-    document.getElementById('sourceViewerOverlay').classList.add('active');
-    try {
-        const r = await fetch(`${API}/api/sources/${sourceId}/content?notebook_id=${activeNotebookId}`);
-        const d = await r.json();
-        if (d.chunks && d.chunks.length) {
-            document.getElementById('sourceViewerBody').innerHTML = d.chunks.map((c, i) => {
-                const meta = c.page_number ? `Page ${c.page_number} • ` : '';
-                return `<div class="source-chunk"><div class="source-chunk-meta">${meta}Chunk ${c.chunk_index + 1}</div>${esc(c.content)}</div>`;
-            }).join('');
-        } else {
-            document.getElementById('sourceViewerBody').innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted)">No content found</div>';
-        }
-    } catch(e) {
-        document.getElementById('sourceViewerBody').innerHTML = `<div style="text-align:center;padding:2rem;color:var(--accent-red)">Error: ${e.message}</div>`;
+async function jumpToCitation(cid) {
+    hideCitation();
+    const data = window._citationData[cid];
+    if (!data) return;
+    let sourceId = data.source_id;
+    if (!sourceId) {
+        const match = sources.find(s => s.name === data.file);
+        sourceId = match?.id;
     }
-}
-function closeSourceViewer() { document.getElementById('sourceViewerOverlay').classList.remove('active'); }
-
-// ─── Full-Text Search ──────────────────────────────────────
-function openSearchPanel() {
-    document.getElementById('searchPanel').classList.add('active');
-    document.getElementById('searchInput').focus();
-}
-function closeSearchPanel() { document.getElementById('searchPanel').classList.remove('active'); }
-async function doSearch() {
-    const q = document.getElementById('searchInput').value.trim();
-    if (!q) return;
-    const body = document.getElementById('searchResults');
-    body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted)">Searching...</div>';
-    try {
-        const r = await fetch(`${API}/api/search`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({query:q, notebook_id:activeNotebookId})});
-        const d = await r.json();
-        if (d.results && d.results.length) {
-            body.innerHTML = d.results.map(r => `<div class="search-result-item">
-                <div class="search-result-source">${esc(r.source_file)} ${r.page_number ? '• Page '+r.page_number : ''}</div>
-                <div class="search-result-text">${esc(r.content)}</div>
-                <div class="search-result-score">Relevance: ${(1 / (1 + r.score) * 100).toFixed(1)}%</div>
-            </div>`).join('');
-        } else {
-            body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted)">No results found</div>';
-        }
-    } catch(e) {
-        body.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--accent-red)">Error: ${e.message}</div>`;
-    }
+    if (!sourceId) { alert('Source not found: ' + data.file); return; }
+    await openSourceViewer(sourceId, data.text);
 }
 
-// ─── Auto-Summary ────────────────────────────────────────
-let _summaryRawText = '';
-async function generateSummary() {
-    if (!sources.length) { alert('Add sources first'); return; }
-    document.getElementById('summaryPanel').classList.add('active');
-    document.getElementById('summaryBody').innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-muted)"><div class="loading-dots" style="display:inline-flex;gap:0.25rem"><span></span><span></span><span></span></div><p style="margin-top:0.5rem">Generating study guide...</p></div>';
-    try {
-        const r = await fetch(`${API}/api/summary`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({notebook_id:activeNotebookId})});
-        const d = await r.json();
-        _summaryRawText = d.summary || '';
-        let html = '';
-        try { html = typeof marked !== 'undefined' ? marked.parse(_summaryRawText, {breaks:true, gfm:true}) : esc(_summaryRawText); } catch { html = esc(_summaryRawText); }
-        if (typeof DOMPurify !== 'undefined') html = DOMPurify.sanitize(html);
-        document.getElementById('summaryBody').innerHTML = html + `<div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);font-size:0.75rem;color:var(--text-muted)">Generated by ${d.model || 'AI'} • Sources: ${(d.sources_used||[]).join(', ')}</div>`;
-    } catch(e) {
-        document.getElementById('summaryBody').innerHTML = `<div style="text-align:center;padding:3rem;color:var(--accent-red)">Error: ${e.message}</div>`;
-    }
+function renderOnboarding() {
+    const wrap = document.getElementById('onboardingWrap');
+    if (!wrap) return;
+    if (localStorage.getItem(ONBOARDING_KEY) || !activeNotebookId) { wrap.innerHTML = ''; return; }
+    if (sources.length > 0 || chatHistory.length > 0) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = `<div class="onboarding-card">
+        <button class="btn btn-ghost btn-sm onboarding-dismiss" onclick="dismissOnboarding()"><i data-lucide="x" class="icon" style="width:14px;height:14px"></i></button>
+        <h4>Welcome to CarnetLM</h4>
+        <div class="onboarding-steps">
+            <div class="onboarding-step"><span class="onboarding-step-num">1</span> Add a source — file, URL, YouTube, or paste text</div>
+            <div class="onboarding-step"><span class="onboarding-step-num">2</span> Ask a question in Chat for cited answers</div>
+            <div class="onboarding-step"><span class="onboarding-step-num">3</span> Try the Editor for rich documents with AI assist</div>
+        </div>
+        <button class="btn btn-soft btn-sm" onclick="openModal('upload')"><i data-lucide="file-up" class="icon" style="width:14px;height:14px"></i> Add your first source</button>
+    </div>`;
+    refreshIcons(wrap);
 }
-function closeSummaryPanel() { document.getElementById('summaryPanel').classList.remove('active'); }
-function copySummary() { if (_summaryRawText) { navigator.clipboard.writeText(_summaryRawText); } }
 
-// ─── Compare Sources ─────────────────────────────────────
-async function openCompareModal() {
-    if (sources.length < 2) { alert('Need at least 2 sources to compare'); return; }
-    const names = sources.map(s => s.name);
-    // Show a simple selection UI
-    let selected = [];
-    const html = names.map((n, i) => `<label style="display:flex;align-items:center;gap:0.5rem;padding:0.375rem 0;font-size:0.8125rem;cursor:pointer"><input type="checkbox" value="${i}" onchange="this.checked?window._cmpSel.push(${i}):window._cmpSel=window._cmpSel.filter(x=>x!==${i})"> ${esc(n)}</label>`).join('');
-    window._cmpSel = [];
-    window._cmpNames = names;
-    const panel = document.getElementById('summaryPanel');
-    document.getElementById('summaryBody').innerHTML = `<div style="margin-bottom:1rem"><strong>Select sources to compare:</strong></div>${html}<button class="btn btn-primary" style="width:100%;margin-top:1rem" onclick="doCompare()">Compare Selected</button>`;
-    panel.classList.add('active');
-    document.querySelector('#summaryPanel .summary-header h3').textContent = '⚖️ Compare Sources';
+function dismissOnboarding() {
+    localStorage.setItem(ONBOARDING_KEY, '1');
+    const wrap = document.getElementById('onboardingWrap');
+    if (wrap) wrap.innerHTML = '';
 }
-async function doCompare() {
-    const sel = window._cmpSel || [];
-    if (sel.length < 2) { alert('Select at least 2 sources'); return; }
-    const names = sel.map(i => window._cmpNames[i]);
-    document.getElementById('summaryBody').innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-muted)"><div class="loading-dots" style="display:inline-flex;gap:0.25rem"><span></span><span></span><span></span></div><p style="margin-top:0.5rem">Comparing sources...</p></div>';
+
+async function openSettings() {
+    openModal('settings');
+    refreshIcons();
     try {
-        const r = await fetch(`${API}/api/compare`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({source_names:names, notebook_id:activeNotebookId})});
-        const d = await r.json();
-        _summaryRawText = d.comparison || '';
-        let html = '';
-        try { html = typeof marked !== 'undefined' ? marked.parse(_summaryRawText, {breaks:true, gfm:true}) : esc(_summaryRawText); } catch { html = esc(_summaryRawText); }
-        if (typeof DOMPurify !== 'undefined') html = DOMPurify.sanitize(html);
-        document.getElementById('summaryBody').innerHTML = html;
-        document.querySelector('#summaryPanel .summary-header h3').textContent = '⚖️ Source Comparison';
-    } catch(e) {
-        document.getElementById('summaryBody').innerHTML = `<div style="text-align:center;padding:3rem;color:var(--accent-red)">Error: ${e.message}</div>`;
+        const [models, chunking, discover, health, tts] = await Promise.all([
+            fetch(`${API}/api/models`).then(r => r.json()),
+            fetch(`${API}/api/settings/chunking?notebook_id=${activeNotebookId || 1}`).then(r => r.json()),
+            fetch(`${API}/api/settings/discover?notebook_id=${activeNotebookId || 1}`).then(r => r.json()),
+            fetch(`${API}/api/health`).then(r => r.json()),
+            fetch(`${API}/api/tts/health`).then(r => r.json()),
+        ]);
+        const active = models.active_provider === 'gemini' ? 'gemini-2.5-flash' : models.active;
+        const ctx = models.context_size || '—';
+        document.getElementById('settingsModelInfo').textContent = `${active || 'None'} · ${models.active_provider || '—'} · ${ctx} tokens`;
+        const preset = chunking.preset || chunking.chunk_preset || 'auto';
+        document.getElementById('settingsChunkPreset').value = preset;
+        document.getElementById('settingsIngestMode').value = chunking.ingest_mode || 'quality';
+        document.getElementById('settingsDiscoverEnabled').checked = !!discover.enabled;
+        document.getElementById('settingsDiscoverProvider').value = discover.provider || 'duckduckgo';
+        document.getElementById('settingsDiscoverApiKey').value = discover.api_key || '';
+        document.getElementById('settingsDiscoverMax').value = discover.max_results || 8;
+        discoverEnabled = !!discover.enabled;
+        updateDiscoverButton();
+        document.getElementById('settingsTtsInfo').textContent = tts.available
+            ? `Orpheus TTS available${tts.voice ? ' · ' + tts.voice : ''}`
+            : 'Browser speech synthesis fallback';
+        const llm = health.llm || {};
+        document.getElementById('settingsHealth').innerHTML = [
+            { label: 'Ollama', ok: llm.ollama_available },
+            { label: 'Milvus', ok: health.milvus?.available },
+            { label: 'SQLite', ok: health.memory?.available },
+            { label: 'TTS', ok: tts.available },
+        ].map(h => `<div class="health-dot ${h.ok ? 'ok' : 'bad'}"><span class="dot"></span>${h.label}</div>`).join('');
+    } catch (e) {
+        document.getElementById('settingsModelInfo').textContent = 'Failed to load settings';
     }
 }
 
-// ─── Chat Export ─────────────────────────────────────────
-async function exportChat() {
-    if (!chatHistory.length) { alert('No chat to export'); return; }
-    try {
-        const r = await fetch(`${API}/api/chat/export`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({notebook_id:activeNotebookId, format:'md'})});
-        if (!r.ok) { alert('Export failed'); return; }
-        const b = await r.blob();
-        const u = URL.createObjectURL(b);
-        const a = document.createElement('a'); a.href=u; a.download='chat_export.md'; a.click(); URL.revokeObjectURL(u);
-    } catch(e) { alert('Export error: '+e.message); }
+async function saveChunkPreset() {
+    if (!activeNotebookId) { alert('Select a notebook first'); return; }
+    const preset = document.getElementById('settingsChunkPreset').value;
+    const ingest_mode = document.getElementById('settingsIngestMode').value;
+    await fetch(`${API}/api/settings/chunking`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notebook_id: activeNotebookId, preset, ingest_mode }),
+    });
+    alert('Ingest settings saved');
 }
 
-// ─── Clear Chat ─────────────────────────────────────────
-async function clearChatHistory() {
-    if (!chatHistory.length || !confirm('Clear all chat history?')) return;
-    await fetch(`${API}/api/history?notebook_id=${activeNotebookId}`, {method:'DELETE'});
-    chatHistory = []; renderChat();
+async function saveDiscoverSettings() {
+    if (!activeNotebookId) { alert('Select a notebook first'); return; }
+    const body = {
+        notebook_id: activeNotebookId,
+        enabled: document.getElementById('settingsDiscoverEnabled').checked,
+        provider: document.getElementById('settingsDiscoverProvider').value,
+        api_key: document.getElementById('settingsDiscoverApiKey').value,
+        max_results: parseInt(document.getElementById('settingsDiscoverMax').value, 10) || 8,
+        auto_on_topic: false,
+    };
+    await fetch(`${API}/api/settings/discover`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    discoverEnabled = body.enabled;
+    updateDiscoverButton();
+    alert('Discovery settings saved');
 }
 
-// ─── Clipboard Paste as Source ──────────────────────────
-async function handleClipboardSubmit() {
-    const title = document.getElementById('clipboardTitle').value.trim() || 'Pasted Text';
-    const text = document.getElementById('clipboardText').value.trim();
-    if (!text) { alert('Please paste some text'); return; }
-    const st = document.getElementById('clipboardStatus');
-    st.innerHTML = '<div class="status-msg status-loading">⏳ Processing...</div>';
+async function updateDiscoverButton() {
+    const btn = document.getElementById('discoverBtn');
+    if (!btn || !activeNotebookId) return;
     try {
-        const r = await fetch(`${API}/api/clipboard`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text, title, notebook_id:activeNotebookId})});
+        const d = await fetch(`${API}/api/settings/discover?notebook_id=${activeNotebookId}`).then(r => r.json());
+        discoverEnabled = !!d.enabled;
+    } catch { discoverEnabled = false; }
+    btn.style.display = discoverEnabled ? '' : 'none';
+}
+
+function openDiscoverModal() {
+    if (!discoverEnabled) { alert('Enable Discover in Settings first'); return; }
+    discoverCandidates = [];
+    document.getElementById('discoverQuery').value = '';
+    document.getElementById('discoverResults').innerHTML = '';
+    document.getElementById('discoverStatus').innerHTML = '';
+    openModal('discover');
+}
+
+async function runDiscoverSearch() {
+    const st = document.getElementById('discoverStatus');
+    const q = document.getElementById('discoverQuery').value.trim();
+    st.innerHTML = '<div class="status-msg status-loading">Searching...</div>';
+    try {
+        const r = await fetch(`${API}/api/discover/search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notebook_id: activeNotebookId, query: q || null }),
+        });
         const d = await r.json();
-        if (d.status === 'ok') {
-            st.innerHTML = `<div class="status-msg status-success">✅ "${d.title}" added (${d.chunks} chunks)</div>`;
-            document.getElementById('clipboardTitle').value = '';
-            document.getElementById('clipboardText').value = '';
-            await loadSources();
-            setTimeout(closeModals, 1200);
-        } else {
-            st.innerHTML = `<div class="status-msg status-error">❌ ${d.detail||'Failed'}</div>`;
-        }
-    } catch(e) { st.innerHTML = `<div class="status-msg status-error">❌ ${e.message}</div>`; }
+        if (!r.ok) { st.innerHTML = `<div class="status-msg status-error">${esc(d.detail || 'Search failed')}</div>`; return; }
+        discoverCandidates = d.candidates || [];
+        if (d.query) document.getElementById('discoverQuery').value = d.query;
+        st.innerHTML = `<div class="status-msg status-success">${discoverCandidates.length} results for "${esc(d.query || q)}"</div>`;
+        document.getElementById('discoverResults').innerHTML = discoverCandidates.map((c, i) =>
+            `<label style="display:block;border:1px solid var(--g15);padding:0.5rem;margin-bottom:0.5rem;font-size:0.7rem;cursor:pointer">
+                <input type="checkbox" class="discover-chk" value="${esc(c.url)}" checked>
+                <strong>${esc(c.title || c.url)}</strong>
+                <div style="color:var(--g40);font-size:0.6rem">${esc(c.domain || '')}</div>
+                <div style="margin-top:0.25rem;color:var(--g60)">${esc((c.snippet || '').slice(0, 180))}</div>
+            </label>`
+        ).join('') || '<div>No results — try a different query</div>';
+    } catch (e) {
+        st.innerHTML = `<div class="status-msg status-error">${esc(e.message)}</div>`;
+    }
 }
 
-// ─── Source Refresh ──────────────────────────────────────
-async function refreshSource(sourceId) {
-    if (!confirm('Re-fetch this source? Old data will be replaced.')) return;
+async function ingestSelectedDiscover() {
+    const urls = [...document.querySelectorAll('.discover-chk:checked')].map(c => c.value);
+    if (!urls.length) { alert('Select at least one URL'); return; }
+    const st = document.getElementById('discoverStatus');
+    st.innerHTML = '<div class="status-msg status-loading">Starting ingest...</div>';
     try {
-        const r = await fetch(`${API}/api/sources/refresh`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({source_id:sourceId, notebook_id:activeNotebookId})});
+        const r = await fetch(`${API}/api/discover/ingest`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notebook_id: activeNotebookId, urls }),
+        });
         const d = await r.json();
-        if (d.status === 'refreshed') {
-            alert(`Refreshed: "${d.title}" (${d.chunks} chunks)`);
-            await loadSources();
-        } else {
-            alert(d.detail || 'Refresh failed');
-        }
-    } catch(e) { alert('Refresh error: '+e.message); }
+        const jobIds = d.job_ids || [];
+        if (!jobIds.length) { st.innerHTML = '<div class="status-msg status-error">No jobs started</div>'; return; }
+        pollIngestJobs(jobIds, st);
+    } catch (e) {
+        st.innerHTML = `<div class="status-msg status-error">${esc(e.message)}</div>`;
+    }
 }
 
-// ─── Citation Deep-Link ─────────────────────────────────
 function showCitation(event, cid) {
     const data = window._citationData[cid];
     if (!data) return;
     const tt = document.getElementById('citationTooltip');
-    document.getElementById('ctHeader').textContent = data.file + (data.page ? ' · Page ' + data.page : '');
-    // Make citation text clickable to view source
-    document.getElementById('ctText').innerHTML = `<div style="cursor:pointer" onclick="citationDeepLink('${esc(data.file).replace(/'/g,"\\\'")}')">${esc(data.text || 'Source text not available')}<div style="font-size:0.625rem;color:var(--accent);margin-top:0.25rem">🔗 Click to view source</div></div>`;
+    document.getElementById('ctHeader').textContent = data.file + (data.page ? ' · PAGE ' + data.page : '');
+    document.getElementById('ctText').textContent = data.text || 'Source text not available';
     const rect = event.target.getBoundingClientRect();
     tt.style.left = Math.max(8, Math.min(rect.left - 140, window.innerWidth - 360)) + 'px';
     tt.style.top = Math.max(8, rect.top - 210) + 'px';
     tt.classList.add('visible');
 }
-function citationDeepLink(fileName) {
-    hideCitation();
-    const src = sources.find(s => s.name === fileName);
-    if (src) viewSource(src.id, src.name);
+
+function hideCitation() { document.getElementById('citationTooltip').classList.remove('visible'); }
+function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function openModal(type) {
+    closeModals();
+    if (type === 'compare') openCompareModal();
+    document.getElementById(`modal-${type}`).classList.add('active');
+    ['uploadStatus','urlStatus','youtubeStatus','clipboardStatus','sourceViewerStatus','discoverStatus'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+    refreshIcons(document.getElementById(`modal-${type}`));
 }
+function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('active')); }
+function setupDragDrop() { const d=document.getElementById('fileDrop'); if(!d)return; d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('dragover');}); d.addEventListener('dragleave',()=>d.classList.remove('dragover')); d.addEventListener('drop',e=>{e.preventDefault();d.classList.remove('dragover');if(e.dataTransfer.files.length)handleFileUpload(e.dataTransfer.files);}); }
 </script>
 </body>
 </html>

@@ -9,6 +9,7 @@ import json
 import sqlite3
 import logging
 import threading
+import os
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 from pathlib import Path
@@ -83,13 +84,65 @@ class LocalMemoryLayer:
                 notebook_id INTEGER NOT NULL,
                 title TEXT NOT NULL,
                 content TEXT DEFAULT '',
+                indexed_in_rag INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS source_files (
+                source_id INTEGER PRIMARY KEY,
+                notebook_id INTEGER NOT NULL,
+                file_path TEXT NOT NULL,
+                mime_type TEXT DEFAULT '',
+                checksum TEXT DEFAULT '',
+                revision INTEGER DEFAULT 1,
+                page_text_json TEXT DEFAULT '{}',
+                FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS source_revisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER NOT NULL,
+                revision INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notebook_id INTEGER NOT NULL UNIQUE,
+                title TEXT DEFAULT 'Untitled',
+                html_content TEXT DEFAULT '',
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
+            )
+        """)
+
         self.conn.commit()
+        self._migrate_notes_column()
+
+    def _migrate_notes_column(self):
+        cursor = self.conn.cursor()
+        cursor.execute("PRAGMA table_info(notes)")
+        cols = [row[1] for row in cursor.fetchall()]
+        if "indexed_in_rag" not in cols:
+            cursor.execute("ALTER TABLE notes ADD COLUMN indexed_in_rag INTEGER DEFAULT 0")
+            self.conn.commit()
 
     def _ensure_default_notebook(self):
         """Create a 'Default' notebook if none exist."""
@@ -273,20 +326,22 @@ class LocalMemoryLayer:
         """Get all tracked sources for a notebook."""
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT id, name, source_type, size, chunk_count, created_at FROM sources WHERE notebook_id = ? ORDER BY id ASC",
+            "SELECT id, name, source_type, size, chunk_count, metadata_json, created_at FROM sources WHERE notebook_id = ? ORDER BY id ASC",
             (notebook_id,),
         )
-        return [
-            {
+        rows = []
+        for row in cursor.fetchall():
+            meta = json.loads(row["metadata_json"] or "{}")
+            rows.append({
                 "id": row["id"],
                 "name": row["name"],
                 "type": row["source_type"],
                 "size": row["size"],
                 "chunks": row["chunk_count"],
                 "created_at": row["created_at"],
-            }
-            for row in cursor.fetchall()
-        ]
+                "index_status": meta.get("index_status", "ready"),
+            })
+        return rows
 
     def get_source_by_id(self, source_id: int) -> Optional[Dict[str, Any]]:
         """Get a source record by ID."""
@@ -410,7 +465,7 @@ class LocalMemoryLayer:
     def get_note(self, note_id: int) -> Optional[Dict[str, Any]]:
         """Get a single note by ID."""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT id, notebook_id, title, content, created_at, updated_at FROM notes WHERE id = ?", (note_id,))
+        cursor.execute("SELECT id, notebook_id, title, content, indexed_in_rag, created_at, updated_at FROM notes WHERE id = ?", (note_id,))
         row = cursor.fetchone()
         if not row:
             return None
@@ -419,6 +474,7 @@ class LocalMemoryLayer:
             "notebook_id": row["notebook_id"],
             "title": row["title"],
             "content": row["content"],
+            "indexed_in_rag": bool(row["indexed_in_rag"]) if "indexed_in_rag" in row.keys() else False,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -429,6 +485,185 @@ class LocalMemoryLayer:
             cursor.execute("DELETE FROM notes WHERE id = ?", (note_id,))
             self.conn.commit()
             return cursor.rowcount > 0
+
+    def set_note_indexed(self, note_id: int, indexed: bool) -> None:
+        with self._lock:
+            self.conn.execute(
+                "UPDATE notes SET indexed_in_rag = ?, updated_at = ? WHERE id = ?",
+                (1 if indexed else 0, datetime.now().isoformat(), note_id),
+            )
+            self.conn.commit()
+
+    # ─── Settings ──────────────────────────────────────────────────────────
+
+    def get_setting(self, key: str, default: str = "") -> str:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        return row[0] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+            self.conn.commit()
+
+    def get_chunking_settings(self, notebook_id: int = 1) -> Dict[str, Any]:
+        raw = self.get_setting(f"chunking_notebook_{notebook_id}", "")
+        if raw:
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                pass
+        return {
+            "preset": self.get_setting("chunking_preset", "auto"),
+            "chunk_tokens": int(self.get_setting("chunk_tokens", "384") or 384),
+            "overlap_tokens": int(self.get_setting("overlap_tokens", "100") or 100),
+            "ingest_mode": self.get_setting("ingest_mode", "quality"),
+        }
+
+    def set_chunking_settings(self, settings: Dict[str, Any], notebook_id: int = 1) -> None:
+        self.set_setting(f"chunking_notebook_{notebook_id}", json.dumps(settings))
+
+    def get_discover_settings(self, notebook_id: int = 1) -> Dict[str, Any]:
+        raw = self.get_setting(f"discover_notebook_{notebook_id}", "")
+        defaults = {
+            "enabled": False,
+            "auto_on_topic": False,
+            "max_results": 8,
+            "provider": "duckduckgo",
+            "api_key": os.getenv("DISCOVER_API_KEY", ""),
+        }
+        if raw:
+            try:
+                defaults.update(json.loads(raw))
+            except json.JSONDecodeError:
+                pass
+        return defaults
+
+    def set_discover_settings(self, settings: Dict[str, Any], notebook_id: int = 1) -> None:
+        self.set_setting(f"discover_notebook_{notebook_id}", json.dumps(settings))
+
+    # ─── Source files ──────────────────────────────────────────────────────
+
+    def save_source_file(
+        self,
+        source_id: int,
+        notebook_id: int,
+        file_path: str,
+        mime_type: str = "",
+        checksum: str = "",
+        page_text: Optional[Dict[str, str]] = None,
+    ) -> None:
+        with self._lock:
+            self.conn.execute(
+                """INSERT INTO source_files (source_id, notebook_id, file_path, mime_type, checksum, page_text_json)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(source_id) DO UPDATE SET
+                   file_path=excluded.file_path, mime_type=excluded.mime_type,
+                   checksum=excluded.checksum, page_text_json=excluded.page_text_json,
+                   revision=revision+1""",
+                (source_id, notebook_id, file_path, mime_type, checksum, json.dumps(page_text or {})),
+            )
+            self.conn.commit()
+
+    def get_source_file(self, source_id: int) -> Optional[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT source_id, notebook_id, file_path, mime_type, checksum, revision, page_text_json FROM source_files WHERE source_id = ?",
+            (source_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "source_id": row[0],
+            "notebook_id": row[1],
+            "file_path": row[2],
+            "mime_type": row[3],
+            "checksum": row[4],
+            "revision": row[5],
+            "page_text": json.loads(row[6] or "{}"),
+        }
+
+    def save_source_revision(self, source_id: int, revision: int, content: str) -> None:
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO source_revisions (source_id, revision, content, created_at) VALUES (?, ?, ?, ?)",
+                (source_id, revision, content, datetime.now().isoformat()),
+            )
+            self.conn.commit()
+
+    def find_source_by_name(self, name: str, notebook_id: int) -> Optional[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT id, notebook_id, name, source_type FROM sources WHERE name = ? AND notebook_id = ?",
+            (name, notebook_id),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {"id": row[0], "notebook_id": row[1], "name": row[2], "type": row[3]}
+
+    def find_source_by_checksum(self, checksum: str, notebook_id: int) -> Optional[Dict[str, Any]]:
+        if not checksum:
+            return None
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT s.id, s.name, s.source_type, s.chunk_count, sf.checksum
+               FROM source_files sf
+               JOIN sources s ON s.id = sf.source_id
+               WHERE sf.checksum = ? AND sf.notebook_id = ?""",
+            (checksum, notebook_id),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "name": row[1],
+            "type": row[2],
+            "chunks": row[3],
+            "checksum": row[4],
+            "notebook_id": notebook_id,
+        }
+
+    # ─── Documents (Quill) ─────────────────────────────────────────────────
+
+    def get_document(self, notebook_id: int) -> Optional[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT id, notebook_id, title, html_content, updated_at FROM documents WHERE notebook_id = ?",
+            (notebook_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "notebook_id": row["notebook_id"],
+            "title": row["title"],
+            "html_content": row["html_content"],
+            "updated_at": row["updated_at"],
+        }
+
+    def save_document(self, notebook_id: int, html_content: str, title: str = "Untitled") -> int:
+        with self._lock:
+            now = datetime.now().isoformat()
+            self.conn.execute(
+                """INSERT INTO documents (notebook_id, title, html_content, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(notebook_id) DO UPDATE SET
+                   title=excluded.title, html_content=excluded.html_content, updated_at=excluded.updated_at""",
+                (notebook_id, title, html_content, now),
+            )
+            self.conn.commit()
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT id FROM documents WHERE notebook_id = ?", (notebook_id,))
+            row = cursor.fetchone()
+            return row[0] if row else 0
 
     # ─── Cleanup ───────────────────────────────────────────────────────────
 

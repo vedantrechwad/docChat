@@ -1,223 +1,321 @@
 import logging
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
+
+from typing import List, Dict, Any, Optional, Union
+
 from pathlib import Path
-import hashlib
+
 from datetime import datetime
 
-import pymupdf # type: ignore
+
+
+import pymupdf  # type: ignore
+
+
+
+from src.document_processing.document_chunk import DocumentChunk
+
+from src.document_processing.chunking_service import ChunkingService
+
+from src.document_processing.process_result import ProcessResult
+
+
 
 logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class DocumentChunk:
-    """Represents a processed document chunk with metadata for citations"""
-    content: str
-    source_file: str
-    source_type: str  # 'pdf', 'txt', 'web', 'audio'
-    page_number: Optional[int] = None
-    chunk_index: int = 0
-    start_char: Optional[int] = None
-    end_char: Optional[int] = None
-    metadata: Optional[Dict[str, Any]] = None
-    chunk_id: str = ""
-    
-    def __post_init__(self):
-        if not self.chunk_id:
-            self.chunk_id = self._generate_chunk_id()
-        if self.metadata is None:
-            self.metadata = {}
-    
-    def _generate_chunk_id(self) -> str:
-        content_hash = hashlib.md5(self.content.encode()).hexdigest()[:8]
-        return f"{self.source_type}_{self.chunk_index}_{content_hash}"
-    
-    def get_citation_info(self) -> Dict[str, Any]:
-        citation = {
-            'source': self.source_file,
-            'type': self.source_type,
-            'chunk_id': self.chunk_id,
-            'chunk_index': self.chunk_index
-        }
-        
-        if self.page_number is not None:
-            citation['page'] = self.page_number
-        if self.start_char is not None or self.end_char is not None:
-            citation['char_range'] = f"{self.start_char}-{self.end_char}"
-        
-        if self.metadata:
-            citation.update(self.metadata)
-        return citation
+
 
 
 class DocumentProcessor:
-    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-        self.supported_formats = {'.pdf', '.txt', '.md'} # add other formats if need be
-    
-    def process_document(self, file_path: str) -> List[DocumentChunk]:
+
+    def __init__(self, chunking: Optional[ChunkingService] = None):
+
+        self.chunking = chunking or ChunkingService.from_preset("balanced")
+
+        self.supported_formats = {'.pdf', '.txt', '.md'}
+
+
+
+    def set_chunking(self, chunking: ChunkingService) -> None:
+
+        self.chunking = chunking
+
+
+
+    def process_document(self, file_path: str) -> ProcessResult:
+
         path_obj = Path(file_path)
-        
+
+
+
         if not path_obj.exists():
+
             raise FileNotFoundError(f"File not found: {path_obj}")
+
         if path_obj.suffix.lower() not in self.supported_formats:
+
             raise ValueError(f"Unsupported file format: {path_obj.suffix}")
-        
+
+
+
         logger.info(f"Processing document: {path_obj.name}")
-        
+
+
+
         try:
+
             if path_obj.suffix.lower() == '.pdf':
+
                 return self._process_pdf(path_obj)
+
             elif path_obj.suffix.lower() in {'.txt', '.md'}:
-                return self._process_text_file(path_obj)
-            else:
-                return []
-                
+
+                chunks = self._process_text_file(path_obj)
+
+                return ProcessResult(chunks=chunks)
+
+            return ProcessResult(chunks=[])
+
+
+
         except Exception as e:
+
             logger.error(f"Error processing {path_obj.name}: {str(e)}")
+
             raise
-    
-    def _process_pdf(self, file_path: Path) -> List[DocumentChunk]:
-        chunks = []
-        try:
-            doc = pymupdf.open(file_path)
-            total_pages = len(doc)
-            
-            for page_num in range(total_pages):
-                page = doc.load_page(page_num)
-                text = page.get_text()
-                
-                if not text.strip():
-                    continue
-                
-                # Get page metadata
-                page_metadata = {
-                    'total_pages': total_pages,
-                    'page_width': page.rect.width,
-                    'page_height': page.rect.height,
-                    'processed_at': datetime.now().isoformat()
-                }
-                
-                page_chunks = self._create_chunks_from_text(
-                    text, 
-                    file_path.name, 
-                    source_type='pdf', 
-                    page_number=page_num+1,
-                    additional_metadata=page_metadata
-                )
-                chunks.extend(page_chunks)
-            
-            doc.close()
-            logger.info(f"Processed PDF: {len(chunks)} chunks from {total_pages} pages")
-            
-        except Exception as e:
-            logger.error(f"Error processing PDF {file_path}: {str(e)}")
-            raise
-        
-        return chunks
-    
-    def _process_text_file(self, file_path: Path) -> List[DocumentChunk]:
-        try:
-            with open(file_path, 'r', encoding='utf-8') as file:
-                content = file.read()
-            
-            metadata = {
-                'file_size': file_path.stat().st_size,
-                'encoding': 'utf-8',
-                'processed_at': datetime.now().isoformat()
-            }
-            
-            chunks = self._create_chunks_from_text(
-                content, 
-                file_path.name, 
-                source_type='txt', 
-                page_number=None,
-                additional_metadata=metadata
-            )
-            
-            logger.info(f"Processed text file: {len(chunks)} chunks")
-            return chunks
-            
-        except Exception as e:
-            logger.error(f"Error processing text file {file_path}: {str(e)}")
-            raise
-    
-    def _create_chunks_from_text(
-        self, 
-        text: str, 
-        source_file: str, 
-        source_type: str,
-        page_number: Optional[int] = None,
-        additional_metadata: Optional[Dict[str, Any]] = None
+
+
+
+    def process_text_content(
+
+        self,
+
+        text: str,
+
+        source_file: str,
+
+        source_type: str = "txt",
+
+        additional_metadata: Optional[Dict[str, Any]] = None,
+
     ) -> List[DocumentChunk]:
-        
-        if not text.strip():
-            return []
-        
-        chunks = []
-        start = 0
-        chunk_index = 0
-        while start < len(text):
-            end = min(start + self.chunk_size, len(text))
-            if end < len(text):
-                last_period = text.rfind('.', start, end)
-                last_newline = text.rfind('\n', start, end)
-                boundary = max(last_period, last_newline)
-                if boundary > start + self.chunk_size * 0.5:
-                    end = boundary + 1
-            
-            chunk_text = text[start:end].strip()
-            
-            if chunk_text:
-                chunk_metadata = additional_metadata.copy() if additional_metadata else {}
-                
-                chunk = DocumentChunk(
-                    content=chunk_text,
-                    source_file=source_file,
-                    source_type=source_type,
-                    page_number=page_number,
-                    chunk_index=chunk_index,
-                    start_char=start,
-                    end_char=end-1,
-                    metadata=chunk_metadata
+
+        return self.chunking.create_chunks(
+
+            text=text,
+
+            source_file=source_file,
+
+            source_type=source_type,
+
+            additional_metadata=additional_metadata,
+
+        )
+
+
+
+    def extract_pdf_pages(self, file_path: Path) -> List[tuple[int, str]]:
+
+        """Extract text per page from PDF (legacy helper)."""
+
+        pages: List[tuple[int, str]] = []
+
+        doc = pymupdf.open(file_path)
+
+        try:
+
+            for page_num in range(len(doc)):
+
+                page = doc.load_page(page_num)
+
+                text = page.get_text()
+
+                if text.strip():
+
+                    pages.append((page_num + 1, text))
+
+        finally:
+
+            doc.close()
+
+        return pages
+
+
+
+    def _extract_pdf_pages_raw(self, doc) -> tuple[List[tuple[int, str]], Dict[str, str], int]:
+
+        pages: List[tuple[int, str]] = []
+
+        page_text: Dict[str, str] = {}
+
+        total_pages = len(doc)
+
+        for page_num in range(total_pages):
+
+            page = doc.load_page(page_num)
+
+            text = page.get_text()
+
+            if text.strip():
+
+                p = page_num + 1
+
+                pages.append((p, text))
+
+                page_text[str(p)] = text
+
+        return pages, page_text, total_pages
+
+
+
+    def _process_pdf(self, file_path: Path) -> ProcessResult:
+
+        try:
+
+            doc = pymupdf.open(file_path)
+
+            pages, page_text, total_pages = self._extract_pdf_pages_raw(doc)
+
+            doc.close()
+
+
+
+            metadata = {
+
+                'total_pages': total_pages,
+
+                'processed_at': datetime.now().isoformat(),
+
+            }
+
+            if self.chunking.structure_first:
+
+                chunks = self.chunking.create_chunks_structured_pages(
+
+                    pages=pages,
+
+                    source_file=file_path.name,
+
+                    source_type='pdf',
+
+                    additional_metadata=metadata,
+
                 )
-                
-                chunks.append(chunk)
-                chunk_index += 1
-            
-            # Advance: always move forward from end, with overlap
-            start = max(end - self.chunk_overlap, start + 1)
-            if start >= len(text):
-                break
-        
-        return chunks
-    
+
+            else:
+
+                chunks = self.chunking.create_chunks_multi_page(
+
+                    pages=pages,
+
+                    source_file=file_path.name,
+
+                    source_type='pdf',
+
+                    additional_metadata=metadata,
+
+                )
+
+            logger.info(f"Processed PDF: {len(chunks)} chunks from {total_pages} pages")
+
+            return ProcessResult(chunks=chunks, page_text=page_text, metadata=metadata)
+
+
+
+        except Exception as e:
+
+            logger.error(f"Error processing PDF {file_path}: {str(e)}")
+
+            raise
+
+
+
+    def _process_text_file(self, file_path: Path) -> List[DocumentChunk]:
+
+        try:
+
+            with open(file_path, 'r', encoding='utf-8') as file:
+
+                content = file.read()
+
+
+
+            metadata = {
+
+                'file_size': file_path.stat().st_size,
+
+                'encoding': 'utf-8',
+
+                'processed_at': datetime.now().isoformat(),
+
+            }
+
+
+
+            source_type = 'md' if file_path.suffix.lower() == '.md' else 'txt'
+
+            if self.chunking.structure_first:
+
+                return self.chunking.create_chunks_structured_text(
+
+                    content, file_path.name, source_type=source_type, additional_metadata=metadata,
+
+                )
+
+            chunks = self.chunking.create_chunks(
+
+                content,
+
+                file_path.name,
+
+                source_type=source_type,
+
+                additional_metadata=metadata,
+
+            )
+
+
+
+            logger.info(f"Processed text file: {len(chunks)} chunks")
+
+            return chunks
+
+
+
+        except Exception as e:
+
+            logger.error(f"Error processing text file {file_path}: {str(e)}")
+
+            raise
+
+
+
     def batch_process(self, file_paths: List[str]) -> List[DocumentChunk]:
+
         all_chunks = []
+
         for file_path in file_paths:
+
             try:
-                chunks = self.process_document(file_path)
-                all_chunks.extend(chunks)
-                logger.info(f"Successfully processed {file_path}: {len(chunks)} chunks")
+
+                result = self.process_document(file_path)
+
+                all_chunks.extend(result.chunks)
+
+                logger.info(f"Successfully processed {file_path}: {len(result.chunks)} chunks")
+
             except Exception as e:
+
                 logger.error(f"Failed to process {file_path}: {str(e)}")
+
                 continue
-        
+
+
+
         logger.info(f"Batch processing complete: {len(all_chunks)} total chunks from {len(file_paths)} files")
+
         return all_chunks
 
 
-if __name__ == "__main__":
-    processor = DocumentProcessor(chunk_size=800, chunk_overlap=100)
-    
-    try:
-        chunks = processor.process_document("data/raft.pdf")
-        sample_chunk = chunks[0]
-        print(f"Sample chunk content: {sample_chunk.content[:200]}...")
-        print(f"Citation info: {sample_chunk.get_citation_info()}")
-            
-    except Exception as e:
-        print(f"Error: {e}")
