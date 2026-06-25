@@ -804,6 +804,27 @@ async def chat_stream(request: ChatRequest):
     if not _rag_generator or not _memory:
         raise HTTPException(status_code=503, detail="Not initialized")
 
+    # Auto-discover: fetch relevant websites if enabled
+    discover_settings = _memory.get_discover_settings(request.notebook_id)
+    if discover_settings.get("enabled") and discover_settings.get("auto_on_topic"):
+        try:
+            from src.discovery.web_discovery import search_candidates
+            candidates = search_candidates(
+                query=request.query,
+                provider=discover_settings.get("provider", "duckduckgo"),
+                max_results=3,
+                api_key=discover_settings.get("api_key") or None,
+            )
+            if candidates:
+                # Auto-ingest top 2 results in background
+                top_urls = [c["url"] for c in candidates[:2]]
+                url_request = URLRequest(urls=top_urls, notebook_id=request.notebook_id)
+                # Trigger background ingest without blocking chat
+                import asyncio
+                asyncio.create_task(add_urls(url_request))
+        except Exception as e:
+            logger.warning(f"Auto-discover failed: {e}")
+
     conv_context = _memory.get_conversation_context(
         notebook_id=request.notebook_id, max_turns=_conversation_turns(),
     )
@@ -878,7 +899,6 @@ async def clear_history(notebook_id: int = Query(1)):
 @app.post("/api/summary")
 async def generate_summary(request: SummaryRequest):
     """Auto-generate a summary / study guide from all sources."""
-    _require_quality_mode("Study guide")
     if not _llm_router or not _vector_db or not _embedding_generator:
         raise HTTPException(status_code=503, detail="Not initialized")
 
@@ -1093,7 +1113,6 @@ async def export_chat(request: ChatExportRequest):
 @app.post("/api/compare")
 async def compare_sources(request: CompareRequest):
     """Compare 2+ sources using AI analysis."""
-    _require_quality_mode("Compare")
     if not _llm_router or not _vector_db or not _embedding_generator:
         raise HTTPException(status_code=503, detail="Not initialized")
 

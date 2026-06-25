@@ -14,8 +14,8 @@
 </head>
 <body>
 
-<!-- WebGL tessellation background -->
-<canvas id="geo-canvas"></canvas>
+<!-- Subtle gradient background -->
+<div class="gradient-bg"></div>
 
 <!-- Scanline overlay -->
 <div class="scanlines"></div>
@@ -53,13 +53,6 @@
         </div>
         <div class="settings-btn-wrap">
             <button class="sidebar-add" style="width:100%" onclick="openSettings()"><i data-lucide="settings" class="icon" style="width:14px;height:14px"></i> Settings</button>
-        </div>
-        <div class="perf-section">
-            <div class="model-label">Performance</div>
-            <div class="perf-toggle" id="perfToggle">
-                <button type="button" class="perf-btn active" data-mode="fast" onclick="setPerformanceMode('fast')">Fast</button>
-                <button type="button" class="perf-btn" data-mode="quality" onclick="setPerformanceMode('quality')">Quality</button>
-            </div>
         </div>
         <div class="model-section">
             <div class="model-label">AI model</div>
@@ -293,9 +286,20 @@
             <button class="btn btn-soft btn-sm" style="margin-top:0.5rem" onclick="saveChunkPreset()">Save ingest settings</button>
         </div>
         <div class="settings-section">
+            <h4>Performance</h4>
+            <select class="input" id="settingsPerformanceMode">
+                <option value="fast">Fast — vector search, minimal latency</option>
+                <option value="quality">Quality — hybrid search + reranking</option>
+            </select>
+            <button class="btn btn-soft btn-sm" style="margin-top:0.5rem" onclick="savePerformanceMode()">Save performance mode</button>
+        </div>
+        <div class="settings-section">
             <h4>Web discovery</h4>
             <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;margin-bottom:0.5rem">
                 <input type="checkbox" id="settingsDiscoverEnabled"> Enable Discover in sidebar
+            </label>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;margin-bottom:0.5rem">
+                <input type="checkbox" id="settingsDiscoverAutoSearch"> Auto-fetch relevant websites during chat
             </label>
             <select class="input" id="settingsDiscoverProvider" style="margin-bottom:0.5rem">
                 <option value="duckduckgo">DuckDuckGo (free)</option>
@@ -340,187 +344,6 @@
 <!-- Quill -->
 <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
 
-<!-- WebGL Tessellation Engine -->
-<script>
-(function() {
-    const canvas = document.getElementById('geo-canvas');
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    if (!gl) return;
-
-    let W, H, mouse = { x: 0.5, y: 0.5 };
-
-    function resize() {
-        W = canvas.width = window.innerWidth;
-        H = canvas.height = window.innerHeight;
-        gl.viewport(0, 0, W, H);
-    }
-
-    const vsSource = `
-        attribute vec2 a_position;
-        void main() {
-            gl_Position = vec4(a_position, 0.0, 1.0);
-        }
-    `;
-
-    const fsSource = `
-        precision mediump float;
-        uniform float u_time;
-        uniform vec2 u_resolution;
-        uniform vec2 u_mouse;
-
-        float hash(vec2 p) {
-            p = fract(p * vec2(127.1, 311.7));
-            p += dot(p, p + 45.32);
-            return fract(p.x * p.y);
-        }
-
-        float noise(vec2 p) {
-            vec2 i = floor(p);
-            vec2 f = fract(p);
-            f = f * f * (3.0 - 2.0 * f);
-            float a = hash(i);
-            float b = hash(i + vec2(1.0, 0.0));
-            float c = hash(i + vec2(0.0, 1.0));
-            float d = hash(i + vec2(1.0, 1.0));
-            return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-        }
-
-        float triGrid(vec2 p, float scale) {
-            p *= scale;
-            vec2 q = vec2(p.x + p.y * 0.5, p.y * 0.866);
-            vec2 qi = floor(q);
-            vec2 qf = fract(q);
-            float d = min(min(qf.x, qf.y), min(1.0 - qf.x, 1.0 - qf.y));
-            float line = smoothstep(0.02, 0.04, d);
-            return 1.0 - line;
-        }
-
-        float diamondGrid(vec2 p, float scale) {
-            p *= scale;
-            vec2 r = p;
-            r = vec2(r.x + r.y, r.x - r.y) * 0.707;
-            vec2 f = fract(r);
-            float d = min(min(f.x, f.y), min(1.0 - f.x, 1.0 - f.y));
-            return 1.0 - smoothstep(0.015, 0.04, d);
-        }
-
-        float fractalTess(vec2 p, float t) {
-            float v = 0.0;
-            float amp = 0.5;
-            vec2 pp = p;
-            for (int i = 0; i < 5; i++) {
-                float angle = t * 0.07 * float(i + 1);
-                mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-                pp = rot * pp;
-                float tri = triGrid(pp + vec2(t * 0.02 * float(i), 0.0), 3.0 + float(i) * 1.5);
-                float dia = diamondGrid(pp + vec2(0.0, t * 0.015 * float(i)), 2.5 + float(i));
-                v += amp * mix(tri, dia, noise(p * 2.0 + t * 0.03));
-                amp *= 0.55;
-                pp *= 1.7;
-            }
-            return v;
-        }
-
-        void main() {
-            vec2 uv = gl_FragCoord.xy / u_resolution;
-            uv.y = 1.0 - uv.y;
-
-            // Cursor distortion
-            vec2 toMouse = uv - u_mouse;
-            float dist = length(toMouse);
-            float strength = 0.06 * smoothstep(0.3, 0.0, dist);
-            vec2 distorted = uv + normalize(toMouse + 0.001) * strength * (1.0 - dist * 3.5);
-
-            float t = u_time;
-            float geo = fractalTess(distorted * 2.0 - 1.0, t);
-
-            // Noise dissolve layer
-            float n1 = noise(distorted * 12.0 + t * 0.1);
-            float n2 = noise(distorted * 5.0 - t * 0.05);
-
-            // Build monochrome value — heavier geo weight for crisp lines
-            float v = geo * 0.85 + n1 * 0.10 + n2 * 0.05;
-
-            // Soft edge vignette — less aggressive so edges stay visible
-            float vignette = 1.0 - smoothstep(0.5, 1.4, length((uv - 0.5) * vec2(1.2, 1.5)));
-            v *= vignette;
-
-            // Base: dark charcoal, not black — so the geometry reads clearly
-            // Lines appear as mid-greys (0.25–0.45) against the dark base
-            vec3 base = vec3(0.055, 0.055, 0.062);       // ~#0e0e10 very dark base
-            vec3 lineColor = vec3(0.55, 0.55, 0.60);      // brighter base line color
-            float brightness = v * 0.85;                   // increased from 0.45
-            gl_FragColor = vec4(base + lineColor * brightness, 1.0);
-        }
-    `;
-
-    function compileShader(type, src) {
-        const s = gl.createShader(type);
-        gl.shaderSource(s, src);
-        gl.compileShader(s);
-        return s;
-    }
-
-    const vs = compileShader(gl.VERTEX_SHADER, vsSource);
-    const fs = compileShader(gl.FRAGMENT_SHADER, fsSource);
-    const prog = gl.createProgram();
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    gl.useProgram(prog);
-
-    const buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
-
-    const posLoc = gl.getAttribLocation(prog, 'a_position');
-    gl.enableVertexAttribArray(posLoc);
-    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-
-    const uTime = gl.getUniformLocation(prog, 'u_time');
-    const uRes = gl.getUniformLocation(prog, 'u_resolution');
-    const uMouse = gl.getUniformLocation(prog, 'u_mouse');
-
-    resize();
-    window.addEventListener('resize', resize);
-
-    // Smooth mouse tracking
-    let targetMouse = { x: 0.5, y: 0.5 };
-    document.addEventListener('mousemove', e => {
-        targetMouse.x = e.clientX / window.innerWidth;
-        targetMouse.y = e.clientY / window.innerHeight;
-    });
-
-    let startTime = Date.now();
-    let animating = true;
-    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)');
-
-    function shouldAnimate() {
-        return animating && !prefersReduced.matches && !document.hidden;
-    }
-
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && shouldAnimate()) render();
-    });
-
-    function render() {
-        if (!shouldAnimate()) {
-            requestAnimationFrame(render);
-            return;
-        }
-        mouse.x += (targetMouse.x - mouse.x) * 0.06;
-        mouse.y += (targetMouse.y - mouse.y) * 0.06;
-
-        const t = (Date.now() - startTime) / 1000;
-        gl.uniform1f(uTime, t);
-        gl.uniform2f(uRes, W, H);
-        gl.uniform2f(uMouse, mouse.x, mouse.y);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-        requestAnimationFrame(render);
-    }
-    render();
-})();
-</script>
 
 <!-- App Logic (original, unmodified) -->
 <script>
@@ -960,10 +783,11 @@ async function sendMessage(e) {
                     bubble.innerHTML = `<span class="retrieval-status">${esc(data.message)}</span><span class="stream-cursor"></span>`;
                 } else if (eventType === 'token' && data.text) {
                     fullText += data.text;
-                    bubble.innerHTML = formatResponse(fullText, sourcesUsed) + '<span class="stream-cursor"></span>';
+                    bubble.textContent = fullText;  // Plain text, no formatting
                     msgs.scrollTop = msgs.scrollHeight;
                 } else if (eventType === 'meta' || eventType === 'done') {
                     if (data.sources_used) sourcesUsed = data.sources_used;
+                    bubble.innerHTML = formatResponse(fullText, sourcesUsed) + '<span class="stream-cursor"></span>';
                 } else if (eventType === 'error') {
                     throw new Error(data.message || 'Stream error');
                 }
@@ -1136,10 +960,6 @@ async function runSearch() {
     el.innerHTML = (d.results || []).map(res => `<div style="border:1px solid var(--g15);padding:0.5rem;margin-bottom:0.5rem;font-size:0.7rem"><strong>${esc(res.source_file)}</strong> <span style="color:var(--g40)">score ${res.score?.toFixed(3)}</span><br>${esc(res.content)}</div>`).join('') || '<div>No results</div>';
 }
 function openCompareModal() {
-    if (performanceMode === 'fast') {
-        showToast('Compare requires Quality mode', 'error');
-        return false;
-    }
     const el = document.getElementById('compareSourceList');
     el.innerHTML = sources.map(s => `<label style="display:block;font-size:0.7rem;margin:0.25rem 0"><input type="checkbox" class="compare-chk" value="${s.name.replace(/"/g, '&quot;')}"> ${esc(s.display_name || s.name)}</label>`).join('');
     return true;
@@ -1155,10 +975,6 @@ async function runCompare() {
     el.textContent = d.comparison || 'Done';
 }
 async function runSummary() {
-    if (performanceMode === 'fast') {
-        showToast('Study guide requires Quality mode', 'error');
-        return;
-    }
     if (!confirm('Generate study guide from all sources?')) return;
     switchTab('chat');
     isLoading = true;
@@ -1305,9 +1121,8 @@ let _citationCounter = 0;
 function formatResponse(text, sources) {
     let html = esc(text);
     html = html.replace(/\[(\d+)\]/g, (match, num) => {
-        const idx = parseInt(num) - 1;
-        const src = sources?.[idx];
         const cid = 'c' + (++_citationCounter);
+        const src = sources?.find(s => s.reference === `[${num}]`) || sources?.[parseInt(num) - 1];
         if (src) {
             window._citationData[cid] = {
                 file: src.source_file || 'Unknown',
@@ -1315,7 +1130,7 @@ function formatResponse(text, sources) {
                 text: src.text || '',
                 source_id: src.source_id || null,
             };
-            return `<span class="citation-ref" data-cid="${cid}" onmouseenter="showCitation(event,'${cid}')" onmouseleave="hideCitation()" onclick="jumpToCitation('${cid}')">${num}</span>`;
+            return `<span class="citation-ref" data-cid="${cid}" onmouseenter="showCitation(event,'${cid}')" onmouseleave="hideCitation()">${num}</span>`;
         }
         return `<span class="citation-ref">${num}</span>`;
     });
@@ -1377,6 +1192,7 @@ async function openSettings() {
             fetch(`${API}/api/settings/discover?notebook_id=${activeNotebookId || 1}`).then(r => r.json()),
             fetch(`${API}/api/health`).then(r => r.json()),
             fetch(`${API}/api/tts/health`).then(r => r.json()),
+            fetch(`${API}/api/settings/performance`).then(r => r.json()),
         ]);
         const active = models.active_provider === 'gemini' ? 'gemini-2.5-flash' : models.active;
         const ctx = models.context_size || '—';
@@ -1385,9 +1201,11 @@ async function openSettings() {
         document.getElementById('settingsChunkPreset').value = preset;
         document.getElementById('settingsIngestMode').value = chunking.ingest_mode || 'quality';
         document.getElementById('settingsDiscoverEnabled').checked = !!discover.enabled;
+        document.getElementById('settingsDiscoverAutoSearch').checked = !!discover.auto_on_topic;
         document.getElementById('settingsDiscoverProvider').value = discover.provider || 'duckduckgo';
         document.getElementById('settingsDiscoverApiKey').value = discover.api_key || '';
         document.getElementById('settingsDiscoverMax').value = discover.max_results || 8;
+        document.getElementById('settingsPerformanceMode').value = perf.mode || 'fast';
         discoverEnabled = !!discover.enabled;
         updateDiscoverButton();
         document.getElementById('settingsTtsInfo').textContent = tts.available
@@ -1395,7 +1213,7 @@ async function openSettings() {
             : 'Browser speech synthesis fallback';
         const llm = health.llm || {};
         document.getElementById('settingsHealth').innerHTML = [
-            { label: 'Ollama', ok: llm.ollama_available },
+            { label: 'Ollama', ok: llm.ollama?.available },
             { label: 'Milvus', ok: health.milvus?.available },
             { label: 'SQLite', ok: health.memory?.available },
             { label: 'TTS', ok: tts.available },
@@ -1422,10 +1240,10 @@ async function saveDiscoverSettings() {
     const body = {
         notebook_id: activeNotebookId,
         enabled: document.getElementById('settingsDiscoverEnabled').checked,
+        auto_on_topic: document.getElementById('settingsDiscoverAutoSearch').checked,
         provider: document.getElementById('settingsDiscoverProvider').value,
         api_key: document.getElementById('settingsDiscoverApiKey').value,
         max_results: parseInt(document.getElementById('settingsDiscoverMax').value, 10) || 8,
-        auto_on_topic: false,
     };
     await fetch(`${API}/api/settings/discover`, {
         method: 'PUT',
@@ -1435,6 +1253,22 @@ async function saveDiscoverSettings() {
     discoverEnabled = body.enabled;
     updateDiscoverButton();
     alert('Discovery settings saved');
+}
+
+async function savePerformanceMode() {
+    const mode = document.getElementById('settingsPerformanceMode').value;
+    try {
+        await fetch(`${API}/api/settings/performance`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode }),
+        });
+        performanceMode = mode;
+        updatePerfUI();
+        showToast('Performance mode saved', 'info');
+    } catch (e) {
+        showToast('Failed to save setting', 'error');
+    }
 }
 
 async function updateDiscoverButton() {
@@ -1511,8 +1345,20 @@ function showCitation(event, cid) {
     document.getElementById('ctHeader').textContent = data.file + (data.page ? ' · PAGE ' + data.page : '');
     document.getElementById('ctText').textContent = data.text || 'Source text not available';
     const rect = event.target.getBoundingClientRect();
-    tt.style.left = Math.max(8, Math.min(rect.left - 140, window.innerWidth - 360)) + 'px';
-    tt.style.top = Math.max(8, rect.top - 210) + 'px';
+    const tooltipHeight = 200;
+    const tooltipWidth = 280;
+    
+    // Smart positioning: prefer below, flip above if insufficient space
+    let top = rect.bottom + 8;
+    if (top + tooltipHeight > window.innerHeight - 20) {
+        top = rect.top - tooltipHeight - 8;
+    }
+    
+    let left = rect.left - (tooltipWidth / 2);
+    left = Math.max(8, Math.min(left, window.innerWidth - tooltipWidth - 8));
+    
+    tt.style.left = left + 'px';
+    tt.style.top = top + 'px';
     tt.classList.add('visible');
 }
 
@@ -1527,6 +1373,9 @@ function openModal(type) {
 }
 function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('active')); }
 function setupDragDrop() { const d=document.getElementById('fileDrop'); if(!d)return; d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('dragover');}); d.addEventListener('dragleave',()=>d.classList.remove('dragover')); d.addEventListener('drop',e=>{e.preventDefault();d.classList.remove('dragover');if(e.dataTransfer.files.length)handleFileUpload(e.dataTransfer.files);}); }
+</script>
+</body>
+</html>n setupDragDrop() { const d=document.getElementById('fileDrop'); if(!d)return; d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('dragover');}); d.addEventListener('dragleave',()=>d.classList.remove('dragover')); d.addEventListener('drop',e=>{e.preventDefault();d.classList.remove('dragover');if(e.dataTransfer.files.length)handleFileUpload(e.dataTransfer.files);}); }
 </script>
 </body>
 </html>
