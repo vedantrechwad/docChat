@@ -15,6 +15,8 @@ import httpx
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 
+from src.llm.model_registry import resolve_context_size
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,7 @@ class LLMRouter:
         self._http_client = httpx.Client(timeout=120.0)
         self._ollama_process = None  # Track the subprocess we started
         self._gemini_client = None  # Reusable Gemini client
+        self._force_provider = None  # User-selected provider override
 
         # Validate the key isn't a placeholder
         if self.gemini_api_key and "your_" in self.gemini_api_key.lower():
@@ -86,6 +89,7 @@ class LLMRouter:
 
         if self.ollama_available:
             logger.info(f"LLM Router: Ollama available, active model: {self.ollama_model}")
+            self._force_provider = "ollama"
         if not self.gemini_available and not self.ollama_available:
             logger.warning("LLM Router: No LLM provider available!")
 
@@ -170,13 +174,27 @@ class LLMRouter:
             return []
 
     def set_model(self, model_name: str) -> bool:
-        """Switch the active Ollama model."""
+        """Switch the active model. Supports both Ollama models and Gemini."""
+        # Handle Gemini selection
+        if model_name.startswith("gemini"):
+            if self.gemini_available:
+                # Gemini is already the primary provider; this is a no-op
+                # but we set a flag so get_active_provider() returns 'gemini'
+                self._force_provider = "gemini"
+                logger.info(f"Active model switched to: {model_name} (Gemini API)")
+                return True
+            else:
+                logger.error("Gemini API not available")
+                return False
+
+        # Handle Ollama model selection
         models = self.list_models()
         model_names = [m["name"] for m in models]
         if model_name not in model_names:
             logger.error(f"Model '{model_name}' not found. Available: {model_names}")
             return False
         self.ollama_model = model_name
+        self._force_provider = "ollama"  # User explicitly chose an Ollama model
         logger.info(f"Active model switched to: {model_name}")
         return True
 
@@ -189,27 +207,140 @@ class LLMRouter:
         temperature: float = 0.1,
         max_tokens: int = 2000,
     ) -> LLMResponse:
-        """Generate a response, trying Gemini first, then Ollama."""
+        """Generate a response. Respects user's model choice if set, otherwise Gemini-first."""
 
-        # Try Gemini first
-        if self.gemini_available:
-            try:
-                return self._generate_gemini(prompt, system_prompt, temperature, max_tokens)
-            except Exception as e:
-                logger.warning(f"Gemini failed ({e}), trying Ollama fallback...")
+        # If user explicitly chose Ollama, try Ollama first
+        if self._force_provider == "ollama":
+            self.ollama_available = self._check_ollama()
+            if self.ollama_available:
+                try:
+                    return self._generate_ollama(prompt, system_prompt, temperature, max_tokens)
+                except Exception as e:
+                    logger.warning(f"Ollama failed ({e}), trying Gemini fallback...")
+            # Fallback to Gemini
+            if self.gemini_available:
+                try:
+                    return self._generate_gemini(prompt, system_prompt, temperature, max_tokens)
+                except Exception as e:
+                    logger.error(f"Gemini also failed: {e}")
+                    raise
+        else:
+            # Offline-first: Ollama when available, else Gemini
+            self.ollama_available = self._check_ollama()
+            if self.ollama_available:
+                try:
+                    return self._generate_ollama(prompt, system_prompt, temperature, max_tokens)
+                except Exception as e:
+                    logger.warning(f"Ollama failed ({e}), trying Gemini fallback...")
 
-        # Fallback to Ollama
-        self.ollama_available = self._check_ollama()
+            if self.gemini_available:
+                try:
+                    return self._generate_gemini(prompt, system_prompt, temperature, max_tokens)
+                except Exception as e:
+                    logger.error(f"Gemini also failed: {e}")
+                    raise
+
+            raise ConnectionError(
+                "No LLM provider available. Set GEMINI_API_KEY in .env or start Ollama (ollama serve)."
+            )
+
+    def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.1,
+        max_tokens: int = 2000,
+    ):
+        """Stream tokens from the active LLM provider."""
+        provider = self.get_active_provider()
+
+        if provider == "ollama" and self.ollama_available:
+            yield from self._stream_ollama(prompt, system_prompt, temperature, max_tokens)
+            return
+
+        if provider == "gemini" and self.gemini_available:
+            yield from self._stream_gemini(prompt, system_prompt, temperature, max_tokens)
+            return
+
         if self.ollama_available:
-            try:
-                return self._generate_ollama(prompt, system_prompt, temperature, max_tokens)
-            except Exception as e:
-                logger.error(f"Ollama also failed: {e}")
-                raise
+            yield from self._stream_ollama(prompt, system_prompt, temperature, max_tokens)
+            return
 
-        raise ConnectionError(
-            "No LLM provider available. Set GEMINI_API_KEY in .env or start Ollama (ollama serve)."
+        if self.gemini_available:
+            yield from self._stream_gemini(prompt, system_prompt, temperature, max_tokens)
+            return
+
+        raise ConnectionError("No LLM provider available.")
+
+    def _stream_ollama(
+        self,
+        prompt: str,
+        system_prompt: Optional[str],
+        temperature: float,
+        max_tokens: int,
+    ):
+        """Stream tokens from Ollama."""
+        import json
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        num_ctx = self.get_model_context_size()
+        payload = {
+            "model": self.ollama_model,
+            "messages": messages,
+            "stream": True,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+                "num_ctx": min(num_ctx, 32768),
+            },
+            "keep_alive": "5m",
+        }
+
+        with self._http_client.stream(
+            "POST", f"{self.ollama_base_url}/api/chat", json=payload
+        ) as response:
+            if response.status_code != 200:
+                raise RuntimeError(f"Ollama stream error: {response.text}")
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                data = json.loads(line)
+                token = data.get("message", {}).get("content", "")
+                if token:
+                    yield token
+                if data.get("done"):
+                    break
+
+    def _stream_gemini(
+        self,
+        prompt: str,
+        system_prompt: Optional[str],
+        temperature: float,
+        max_tokens: int,
+    ):
+        """Stream tokens from Gemini API."""
+        from google.genai import types
+
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
         )
+        if system_prompt:
+            config.system_instruction = system_prompt
+
+        stream = self._gemini_client.models.generate_content_stream(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=config,
+        )
+        for chunk in stream:
+            text = getattr(chunk, "text", None) or ""
+            if text:
+                yield text
 
     def _generate_gemini(
         self, prompt: str, system_prompt: Optional[str],
@@ -247,6 +378,8 @@ class LLMRouter:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        num_ctx = self.get_model_context_size()
+
         payload = {
             "model": self.ollama_model,
             "messages": messages,
@@ -254,9 +387,9 @@ class LLMRouter:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
-                "num_ctx": 4096,  # Ensure enough context for RAG prompts
+                "num_ctx": min(num_ctx, 32768),
             },
-            "keep_alive": "5m",  # Keep model loaded between requests
+            "keep_alive": "5m",
         }
 
         response = self._http_client.post(
@@ -301,50 +434,59 @@ class LLMRouter:
 
     def get_active_provider(self) -> str:
         """Return which provider will handle the next request."""
-        if self.gemini_available:
+        if self._force_provider == "ollama" and self.ollama_available:
+            return "ollama"
+        if self._force_provider == "gemini" and self.gemini_available:
             return "gemini"
+        # Offline-first default
         if self.ollama_available:
             return "ollama"
+        if self.gemini_available:
+            return "gemini"
         return "none"
 
+    def _detect_ollama_context_size(self) -> Optional[int]:
+        """Query Ollama for model num_ctx."""
+        try:
+            r = self._http_client.post(
+                f"{self.ollama_base_url}/api/show",
+                json={"name": self.ollama_model},
+                timeout=5.0,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                params = data.get("parameters", "")
+                if isinstance(params, str):
+                    for line in params.split("\n"):
+                        if "num_ctx" in line:
+                            parts = line.strip().split()
+                            if len(parts) >= 2:
+                                return int(parts[-1])
+                modelfile = data.get("modelfile", "")
+                if "num_ctx" in modelfile:
+                    for line in modelfile.split("\n"):
+                        if "num_ctx" in line:
+                            parts = line.strip().split()
+                            if len(parts) >= 2:
+                                try:
+                                    return int(parts[-1])
+                                except ValueError:
+                                    pass
+        except Exception as e:
+            logger.warning(f"Could not detect model context size: {e}")
+        return None
+
     def get_model_context_size(self) -> int:
-        """Get the context window size for the active model."""
-        if self.gemini_available:
-            # Gemini 2.5 Flash supports 1M tokens, but we cap at a practical limit
+        """Get the context window size for the active model/provider."""
+        provider = self.get_active_provider()
+
+        if provider == "gemini":
             return 1_000_000
 
-        if self.ollama_available:
-            try:
-                r = self._http_client.post(
-                    f"{self.ollama_base_url}/api/show",
-                    json={"name": self.ollama_model},
-                    timeout=5.0,
-                )
-                if r.status_code == 200:
-                    data = r.json()
-                    # Parse num_ctx from model parameters
-                    params = data.get("parameters", "")
-                    if isinstance(params, str):
-                        for line in params.split("\n"):
-                            if "num_ctx" in line:
-                                parts = line.strip().split()
-                                if len(parts) >= 2:
-                                    return int(parts[-1])
-                    # Check modelfile for num_ctx
-                    modelfile = data.get("modelfile", "")
-                    if "num_ctx" in modelfile:
-                        for line in modelfile.split("\n"):
-                            if "num_ctx" in line:
-                                parts = line.strip().split()
-                                if len(parts) >= 2:
-                                    try:
-                                        return int(parts[-1])
-                                    except ValueError:
-                                        pass
-            except Exception as e:
-                logger.warning(f"Could not detect model context size: {e}")
+        if provider == "ollama" and self.ollama_available:
+            detected = self._detect_ollama_context_size()
+            return resolve_context_size(self.ollama_model, detected)
 
-        # Default fallback for most Ollama models
         return 4096
 
     def close(self):

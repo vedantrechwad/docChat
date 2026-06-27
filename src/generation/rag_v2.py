@@ -22,12 +22,11 @@ from src.llm.llm_router import LLMRouter
 from src.vector_database.milvus_vector_db import MilvusVectorDB
 from src.embeddings.embedding_generator import EmbeddingGenerator
 from src.generation.hybrid_search import BM25Index, reciprocal_rank_fusion
+from src.generation.notebook_bm25 import notebook_bm25_cache
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-# ─── Context Profiles ──────────────────────────────────────────────────────────
 
 CONTEXT_PROFILES = {
     (0, 4096): {
@@ -66,6 +65,18 @@ CONTEXT_PROFILES = {
         "use_reranking": True,
         "label": "api",
     },
+}
+
+
+FAST_PROFILE = {
+    "max_context_chars": 2000,
+    "max_chunks": 5,
+    "max_tokens": 1000,
+    "top_k": 8,
+    "use_hyde": False,
+    "use_reranking": False,
+    "use_hybrid": False,
+    "label": "fast",
 }
 
 
@@ -113,21 +124,57 @@ Rules:
         llm_router: LLMRouter,
         embedding_generator: EmbeddingGenerator,
         vector_db: MilvusVectorDB,
+        memory=None,
     ):
         self.llm_router = llm_router
         self.embedding_generator = embedding_generator
         self.vector_db = vector_db
+        self.memory = memory
         self.bm25_index = BM25Index()
         self._embedding_cache: Dict[str, np.ndarray] = {}
         self._cache_max_size = 100
         logger.info("RAG Generator V2 initialized (hybrid search + adaptive context)")
 
     def _get_adaptive_settings(self) -> Dict[str, Any]:
-        """Get context/chunking settings adaptive to the active model."""
+        """Get context/chunking settings adaptive to performance mode and active model."""
+        if self.memory and self.memory.get_performance_mode() == "fast":
+            logger.info("RAG profile: fast (vector-only)")
+            return dict(FAST_PROFILE)
+
         ctx_size = self.llm_router.get_model_context_size()
-        profile = get_context_profile(ctx_size)
+        profile = dict(get_context_profile(ctx_size))
+        profile["use_hybrid"] = True
+        if ctx_size <= 32768:
+            profile["use_hyde"] = False
         logger.info(f"Adaptive profile: {profile['label']} (model ctx: {ctx_size})")
         return profile
+
+    def _apply_hybrid_search(
+        self,
+        vector_results: List[Dict[str, Any]],
+        notebook_id: Optional[int],
+        query: str,
+        top_k: int,
+        use_hybrid: bool,
+    ) -> List[Dict[str, Any]]:
+        if not use_hybrid or notebook_id is None:
+            return vector_results
+        try:
+            bm25_results = notebook_bm25_cache.search(
+                self.memory, notebook_id, query, k=top_k * 2, vector_db=self.vector_db
+            )
+            if bm25_results:
+                corpus_index = notebook_bm25_cache.get_index(
+                    self.memory, notebook_id, vector_db=self.vector_db
+                )
+                merged = reciprocal_rank_fusion(
+                    vector_results, bm25_results, corpus_index
+                )
+                logger.info(f"Hybrid search (corpus BM25): {len(merged)} fused results")
+                return merged
+        except Exception as e:
+            logger.warning(f"BM25 hybrid search failed (falling back to vector only): {e}")
+        return vector_results
 
     def _get_cached_embedding(self, query: str) -> np.ndarray:
         """Get query embedding with LRU caching."""
@@ -255,6 +302,7 @@ Rules:
             top_k = settings["top_k"]
             use_hyde = settings["use_hyde"]
             use_reranking = settings["use_reranking"]
+            use_hybrid = settings.get("use_hybrid", True)
 
             # ── Step 1: Query processing ───────────────────────────────
             search_query = query
@@ -262,7 +310,12 @@ Rules:
                 search_query = self._hyde_rewrite(query)
 
             # ── Step 2: Vector search (notebook-isolated) ──────────────
-            query_vector = self._get_cached_embedding(search_query)
+            # Cache embedding under original query (HyDE text is non-deterministic)
+            if use_hyde and search_query != query:
+                # Generate fresh embedding for HyDE text (don't cache it)
+                query_vector = self.embedding_generator.generate_query_embedding(search_query)
+            else:
+                query_vector = self._get_cached_embedding(query)
             vector_results = self.vector_db.search(
                 query_vector=query_vector.tolist(),
                 limit=top_k,
@@ -276,8 +329,11 @@ Rules:
                     sources_used=[], retrieval_count=0,
                 )
 
-            # ── Step 3: Hybrid search (BM25 + RRF) ─────────────────────
-            try:
+            # ── Step 3: Hybrid search (full-corpus BM25 + RRF) ─────────
+            vector_results = self._apply_hybrid_search(
+                vector_results, notebook_id, query, top_k, use_hybrid
+            )
+            if not use_hybrid and notebook_id is None:
                 self._build_bm25_from_vector_results(vector_results)
                 if self.bm25_index.is_ready:
                     bm25_results = self.bm25_index.search(query, k=top_k)
@@ -287,8 +343,6 @@ Rules:
                         )
                         vector_results = merged
                         logger.info(f"Hybrid search: {len(merged)} fused results")
-            except Exception as e:
-                logger.warning(f"BM25 hybrid search failed (falling back to vector only): {e}")
 
             # ── Step 4: Reranking ──────────────────────────────────────
             if use_reranking and len(vector_results) > max_chunks:
@@ -357,6 +411,7 @@ Rules:
                 "source_type": citation.get("source_type", "unknown"),
                 "page_number": citation.get("page_number"),
                 "chunk_id": result.get("id", ""),
+                "chunk_index": citation.get("chunk_index"),
                 "relevance_score": result.get("score", result.get("rrf_score", 0)),
                 "text": result["content"][:300],
             })
@@ -376,3 +431,95 @@ CONTEXT (with citation references):
 QUESTION: {query}
 
 Provide a comprehensive answer with proper citations. Every factual statement must be supported by a citation reference."""
+
+    def prepare_response(
+        self,
+        query: str,
+        notebook_id: Optional[int] = None,
+        conversation_context: str = "",
+    ) -> Tuple[str, str, List[Dict[str, Any]], int, Dict[str, Any]]:
+        """Run retrieval and return prompt, system prompt, sources, count, settings."""
+        if not query.strip():
+            return "", self.SYSTEM_PROMPT, [], 0, {}
+
+        settings = self._get_adaptive_settings()
+        max_chunks = settings["max_chunks"]
+        max_context_chars = settings["max_context_chars"]
+        max_tokens = settings["max_tokens"]
+        top_k = settings["top_k"]
+        use_hyde = settings["use_hyde"]
+        use_reranking = settings["use_reranking"]
+        use_hybrid = settings.get("use_hybrid", True)
+
+        search_query = self._hyde_rewrite(query) if use_hyde else query
+
+        if use_hyde and search_query != query:
+            query_vector = self.embedding_generator.generate_query_embedding(search_query)
+        else:
+            query_vector = self._get_cached_embedding(query)
+
+        vector_results = self.vector_db.search(
+            query_vector=query_vector.tolist(),
+            limit=top_k,
+            notebook_id=notebook_id,
+        )
+
+        if not vector_results:
+            return "", self.SYSTEM_PROMPT, [], 0, settings
+
+        vector_results = self._apply_hybrid_search(
+            vector_results, notebook_id, query, top_k, use_hybrid
+        )
+
+        if use_reranking and len(vector_results) > max_chunks:
+            vector_results = self._rerank_chunks(query, vector_results, max_chunks)
+
+        context, sources_info = self._format_context(
+            vector_results, max_chunks, max_context_chars
+        )
+        prompt = self._build_prompt(query, context, conversation_context)
+        settings["max_tokens"] = max_tokens
+        return prompt, self.SYSTEM_PROMPT, sources_info, len(vector_results), settings
+
+    def generate_response_stream(
+        self,
+        query: str,
+        notebook_id: Optional[int] = None,
+        conversation_context: str = "",
+    ):
+        """Yield (event_type, data) tuples for SSE streaming."""
+        if not query.strip():
+            yield ("error", {"message": "Please provide a question."})
+            return
+
+        try:
+            yield ("status", {"message": "Searching sources..."})
+
+            prompt, system_prompt, sources_info, retrieval_count, settings = self.prepare_response(
+                query, notebook_id, conversation_context
+            )
+
+            if not prompt:
+                yield ("token", {"text": "I couldn't find any relevant information in the available documents to answer your question."})
+                yield ("done", {"sources_used": [], "retrieval_count": 0})
+                return
+
+            yield ("meta", {
+                "sources_used": sources_info,
+                "retrieval_count": retrieval_count,
+                "profile": settings.get("label", ""),
+            })
+
+            for token in self.llm_router.generate_stream(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=0.1,
+                max_tokens=settings.get("max_tokens", 2000),
+            ):
+                yield ("token", {"text": token})
+
+            yield ("done", {"sources_used": sources_info, "retrieval_count": retrieval_count})
+
+        except Exception as e:
+            logger.error(f"RAG stream error: {e}")
+            yield ("error", {"message": str(e)})
