@@ -2,7 +2,11 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
             --bg-elevated: #2a2a2e;
+<<<<<<< Updated upstream
             --shadow-elevated: 0 1px 0 rgba(129, 129, 133, 0.05) inset, 0 12px 40px rgba(0,0,0,0.35);
+=======
+            --shadow-elevated: 0 1px 0 rgba(255,255,255,0.05) inset, 0 12px 40px rgba(0,0,0,0.35);
+>>>>>>> Stashed changes
             --black: #121214;
             --white: #f0eeea;
             --g05: #161618;
@@ -322,7 +326,11 @@
             display: flex;
             flex-direction: column;
             min-width: 0;
+<<<<<<< Updated upstream
             background: rgba(5,5,5,0.72);
+=======
+            background: rgba(5,5,5,0.80);
+>>>>>>> Stashed changes
             backdrop-filter: blur(4px);
             -webkit-backdrop-filter: blur(4px);
             position: relative;
@@ -945,8 +953,13 @@
                 0deg,
                 transparent,
                 transparent 2px,
+<<<<<<< Updated upstream
                 rgba(0,0,0,0.008) 2px,
                 rgba(0,0,0,0.008) 4px
+=======
+                rgba(0,0,0,0.015) 2px,
+                rgba(0,0,0,0.015) 4px
+>>>>>>> Stashed changes
             );
         }
 

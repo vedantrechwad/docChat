@@ -451,8 +451,8 @@
             // Base: dark charcoal, not black — so the geometry reads clearly
             // Lines appear as mid-greys (0.25–0.45) against the dark base
             vec3 base = vec3(0.055, 0.055, 0.062);       // ~#0e0e10 very dark base
-            vec3 lineColor = vec3(0.38, 0.38, 0.42);      // ~#616168 visible grey for geometry lines
-            float brightness = v * 0.45;                   // was 0.08 — now lines are actually visible
+            vec3 lineColor = vec3(0.55, 0.55, 0.60);      // brighter base line color
+            float brightness = v * 0.85;                   // increased from 0.45
             gl_FragColor = vec4(base + lineColor * brightness, 1.0);
         }
     `;

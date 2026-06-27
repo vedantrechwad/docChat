@@ -228,7 +228,11 @@ class LocalMemoryLayer:
             return cursor.rowcount > 0
 
     def delete_notebook(self, notebook_id: int) -> bool:
+<<<<<<< Updated upstream
         """Delete a notebook and all its data."""
+=======
+        """Delete a notebook and all its data. Can't delete the last notebook."""
+>>>>>>> Stashed changes
         with self._lock:
             cursor = self.conn.cursor()
             cursor.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
