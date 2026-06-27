@@ -29,6 +29,10 @@ echo Starting DocChat on http://localhost:8000
 echo Press Ctrl+C to stop.
 echo.
 
+:: Start the server in background and open browser
+start "" http://localhost:8000
+timeout /t 2 /nobreak >nul
+
 :: Start the server (stays open so you can see output)
 uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from src.document_processing.chunking_service import ChunkingService
+from src.document_processing.chunk_cache import get_chunk_cache
 from src.ingest.ingest_jobs import IngestJobManager, JobStatus
 
 logging.basicConfig(level=logging.INFO)
@@ -118,6 +119,7 @@ def ingest_chunks(
     on_progress: Optional[Callable[[str, int, int], None]] = None,
     job_manager: Optional[IngestJobManager] = None,
     job_id: Optional[str] = None,
+    checksum: Optional[str] = None,
 ) -> int:
     """Embed chunks in batches, insert to Milvus incrementally. Returns source_id."""
     if job_manager and job_id and job_manager.is_cancelled(job_id, notebook_id):
@@ -135,6 +137,15 @@ def ingest_chunks(
         source_info = dict(source_info)
         source_info["index_status"] = "ready"
         return memory.save_source(source_info, notebook_id=notebook_id)
+
+    # Cache chunks if checksum is provided
+    if checksum:
+        chunk_cache = get_chunk_cache()
+        chunking_config = {
+            "chunk_size": getattr(chunks[0], 'chunk_index', 0),  # Basic config tracking
+            "source_type": source_info.get("type", "Document")
+        }
+        chunk_cache.store_chunks(checksum, chunks, source_name, chunking_config)
 
     batch_size = getattr(embedding_generator, "batch_size", 32)
     for i in range(0, total, batch_size):

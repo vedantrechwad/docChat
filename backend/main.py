@@ -572,11 +572,27 @@ async def upload_files(
                     }
 
                 _ingest_jobs._update(job_id, status=JobStatus.EXTRACTING, message="Extracting...", progress=10)
-                result = _doc_processor.process_document(temp_path)
-                chunks = result.chunks
-                page_text = result.page_text
-                for chunk in chunks:
-                    chunk.source_file = fname
+                
+                # Check chunk cache first to avoid re-chunking
+                from src.document_processing.chunk_cache import get_chunk_cache
+                chunk_cache = get_chunk_cache()
+                cached_chunks = chunk_cache.get_chunks(checksum)
+                
+                if cached_chunks:
+                    chunks = cached_chunks
+                    page_text = None  # Page text not cached for simplicity
+                    logger.info(f"Retrieved {len(chunks)} chunks from cache for {fname}")
+                    _ingest_jobs._update(
+                        job_id, status=JobStatus.EMBEDDING,
+                        message=f"Using cached chunks ({len(chunks)})",
+                        progress=20, chunks_total=len(chunks), chunks_done=0,
+                    )
+                else:
+                    result = _doc_processor.process_document(temp_path)
+                    chunks = result.chunks
+                    page_text = result.page_text
+                    for chunk in chunks:
+                        chunk.source_file = fname
 
                 if not chunks:
                     raise ValueError(
@@ -610,6 +626,7 @@ async def upload_files(
                     on_progress=on_progress,
                     job_manager=_ingest_jobs,
                     job_id=job_id,
+                    checksum=checksum,
                 )
 
                 stored = store_source_file(notebook, source_id, Path(temp_path), fname)

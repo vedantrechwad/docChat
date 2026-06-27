@@ -1,14 +1,65 @@
 import logging
 import time
 import uuid
+import hashlib
+import sqlite3
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 import json
 
 from pymilvus import MilvusClient, DataType
 from src.embeddings.embedding_generator import EmbeddedChunk
+from src.vector_database.chunk_reference_tracker import get_reference_tracker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+CURRENT_SCHEMA_VERSION = 2  # Version 2: reference counting, no notebook_id field
+
+
+def _get_schema_version_db_path(db_path: str) -> Path:
+    """Get path for schema version tracking database."""
+    return Path(db_path).parent / "schema_version.db"
+
+
+def _get_current_schema_version(db_path: str) -> int:
+    """Get current schema version from tracking database."""
+    version_db = _get_schema_version_db_path(db_path)
+    if not version_db.exists():
+        return 0  # No version tracking = old version
+    
+    try:
+        with sqlite3.connect(version_db) as conn:
+            cursor = conn.execute("SELECT version FROM schema_version WHERE id = 1")
+            row = cursor.fetchone()
+            return row[0] if row else 0
+    except Exception:
+        return 0
+
+
+def _set_schema_version(db_path: str, version: int) -> bool:
+    """Set schema version in tracking database."""
+    version_db = _get_schema_version_db_path(db_path)
+    version_db.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        with sqlite3.connect(version_db) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL,
+                    migrated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                INSERT OR REPLACE INTO schema_version (id, version)
+                VALUES (1, ?)
+            """, (version,))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to set schema version: {e}")
+        return False
 
 
 def _escape_filter_string(value: str) -> str:
@@ -32,6 +83,167 @@ class MilvusVectorDB:
         self._initialize_client()
         self._setup_collection()
     
+    def _migrate_collection(self):
+        """Migrate from old schema (notebook_id field) to new schema (reference counting)."""
+        try:
+            logger.info("Starting schema migration from version 1 to version 2...")
+            ref_tracker = get_reference_tracker()
+            
+            # Export all existing chunks with their data
+            results = self.client.query(
+                collection_name=self.collection_name,
+                output_fields=["id", "notebook_id", "source_file", "content", "vector", 
+                               "source_type", "page_number", "chunk_index", "start_char", 
+                               "end_char", "metadata", "embedding_model"],
+                limit=10000
+            )
+            
+            # Calculate content hashes for existing chunks
+            chunks_to_migrate = []
+            for chunk in results:
+                chunk_id = chunk.get('id', '')
+                notebook_id = chunk.get('notebook_id')
+                source_file = chunk.get('source_file', 'unknown')
+                content = chunk.get('content', '')
+                
+                if chunk_id and notebook_id is not None:
+                    # Calculate content hash
+                    content_hash = hashlib.md5(content.encode()).hexdigest()
+                    
+                    # Add reference to tracker
+                    ref_tracker.add_reference(chunk_id, notebook_id, source_file)
+                    
+                    # Prepare chunk data for re-insertion
+                    chunk_data = {
+                        'id': chunk_id,
+                        'vector': chunk.get('vector'),
+                        'content': content,
+                        'source_file': source_file,
+                        'source_type': chunk.get('source_type', ''),
+                        'page_number': chunk.get('page_number', -1),
+                        'chunk_index': chunk.get('chunk_index', 0),
+                        'start_char': chunk.get('start_char', -1),
+                        'end_char': chunk.get('end_char', -1),
+                        'metadata': chunk.get('metadata', {}),
+                        'embedding_model': chunk.get('embedding_model', ''),
+                        'content_hash': content_hash
+                    }
+                    chunks_to_migrate.append(chunk_data)
+            
+            logger.info(f"Prepared {len(chunks_to_migrate)} chunks for migration")
+            
+            # Drop and recreate collection without notebook_id field
+            logger.info("Recreating collection with new schema...")
+            self.client.drop_collection(collection_name=self.collection_name)
+            self.collection_exists = False
+            
+            # Create new collection
+            self._create_new_collection()
+            
+            # Re-insert all chunks with new schema
+            if chunks_to_migrate:
+                self.client.insert(
+                    collection_name=self.collection_name,
+                    data=chunks_to_migrate
+                )
+                logger.info(f"Re-inserted {len(chunks_to_migrate)} chunks into new collection")
+            
+            # Update schema version
+            _set_schema_version(self.db_path, CURRENT_SCHEMA_VERSION)
+            logger.info("Schema migration completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Schema migration failed: {e}")
+            raise
+    
+    def _create_new_collection(self):
+        """Create collection with new schema (no notebook_id field)."""
+        schema = self.client.create_schema(
+            auto_id=False,
+            enable_dynamic_field=True
+        )
+        
+        # Primary key field (chunk_id)
+        schema.add_field(
+            field_name="id",
+            datatype=DataType.VARCHAR,
+            max_length=128,
+            is_primary=True
+        )
+        
+        # Vector field for embeddings
+        schema.add_field(
+            field_name="vector",
+            datatype=DataType.FLOAT_VECTOR,
+            dim=self.embedding_dim
+        )
+        
+        # Essential fields for citations and content
+        schema.add_field(
+            field_name="content",
+            datatype=DataType.VARCHAR,
+            max_length=8192
+        )
+        
+        schema.add_field(
+            field_name="source_file",
+            datatype=DataType.VARCHAR,
+            max_length=512
+        )
+        
+        schema.add_field(
+            field_name="source_type",
+            datatype=DataType.VARCHAR,
+            max_length=32
+        )
+        
+        schema.add_field(
+            field_name="page_number",
+            datatype=DataType.INT32
+        )
+        
+        schema.add_field(
+            field_name="chunk_index",
+            datatype=DataType.INT32
+        )
+        
+        schema.add_field(
+            field_name="start_char",
+            datatype=DataType.INT32
+        )
+        
+        schema.add_field(
+            field_name="end_char", 
+            datatype=DataType.INT32
+        )
+        
+        # JSON field for additional metadata
+        schema.add_field(
+            field_name="metadata",
+            datatype=DataType.JSON
+        )
+        
+        schema.add_field(
+            field_name="embedding_model",
+            datatype=DataType.VARCHAR,
+            max_length=128
+        )
+        
+        # Content hash for deduplication
+        schema.add_field(
+            field_name="content_hash",
+            datatype=DataType.VARCHAR,
+            max_length=32
+        )
+        
+        self.client.create_collection(
+            collection_name=self.collection_name,
+            schema=schema
+        )
+        
+        logger.info(f"Collection '{self.collection_name}' created with new schema")
+        self.collection_exists = True
+    
     def _initialize_client(self):
         try:
             self.client = MilvusClient(uri=self.db_path)
@@ -43,9 +255,19 @@ class MilvusVectorDB:
     
     def _setup_collection(self):
         try:
+            current_version = _get_current_schema_version(self.db_path)
+            
             if self.client.has_collection(collection_name=self.collection_name):
                 logger.info(f"Collection '{self.collection_name}' already exists")
                 self.collection_exists = True
+                
+                # Check if migration is needed
+                if current_version < CURRENT_SCHEMA_VERSION:
+                    logger.warning(f"Schema version {current_version} detected, current version is {CURRENT_SCHEMA_VERSION}")
+                    self._migrate_collection()
+                else:
+                    logger.info(f"Schema version {current_version} is up to date")
+                
                 try:
                     self.client.load_collection(collection_name=self.collection_name)
                     logger.info(f"Collection '{self.collection_name}' loaded into memory")
@@ -53,89 +275,9 @@ class MilvusVectorDB:
                     pass  # May not have index yet
                 return
             
-            schema = self.client.create_schema(
-                auto_id=False,
-                enable_dynamic_field=True  # Allow additional metadata fields
-            )
-            
-            # Primary key field (chunk_id)
-            schema.add_field(
-                field_name="id",
-                datatype=DataType.VARCHAR,
-                max_length=128,
-                is_primary=True
-            )
-            
-            # Vector field for embeddings
-            schema.add_field(
-                field_name="vector",
-                datatype=DataType.FLOAT_VECTOR,
-                dim=self.embedding_dim
-            )
-            
-            # Essential fields for citations and content
-            schema.add_field(
-                field_name="content",
-                datatype=DataType.VARCHAR,
-                max_length=8192
-            )
-            
-            schema.add_field(
-                field_name="source_file",
-                datatype=DataType.VARCHAR,
-                max_length=512
-            )
-            
-            schema.add_field(
-                field_name="source_type",
-                datatype=DataType.VARCHAR,
-                max_length=32
-            )
-            
-            schema.add_field(
-                field_name="page_number",
-                datatype=DataType.INT32
-            )
-            
-            schema.add_field(
-                field_name="notebook_id",
-                datatype=DataType.INT32
-            )
-
-            schema.add_field(
-                field_name="chunk_index",
-                datatype=DataType.INT32
-            )
-            
-            schema.add_field(
-                field_name="start_char",
-                datatype=DataType.INT32
-            )
-            
-            schema.add_field(
-                field_name="end_char", 
-                datatype=DataType.INT32
-            )
-            
-            # JSON field for additional metadata
-            schema.add_field(
-                field_name="metadata",
-                datatype=DataType.JSON
-            )
-            
-            schema.add_field(
-                field_name="embedding_model",
-                datatype=DataType.VARCHAR,
-                max_length=128
-            )
-            
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                schema=schema
-            )
-            
-            logger.info(f"Collection '{self.collection_name}' created successfully")
-            self.collection_exists = True
+            # Create new collection
+            self._create_new_collection()
+            _set_schema_version(self.db_path, CURRENT_SCHEMA_VERSION)
             
         except Exception as e:
             logger.error(f"Error setting up collection: {str(e)}")
@@ -197,32 +339,123 @@ class MilvusVectorDB:
     def insert_embeddings(self, embedded_chunks: List[EmbeddedChunk], notebook_id: int = 1) -> List[str]:
         if not embedded_chunks:
             return []
-        try:
-            data = []
-            for embedded_chunk in embedded_chunks:
-                chunk_data = embedded_chunk.to_vector_db_format()
-                # Use UUID to prevent duplicates on re-upload
-                chunk_data['id'] = f"{chunk_data['id']}_{uuid.uuid4().hex[:12]}"
-                chunk_data['page_number'] = chunk_data['page_number'] or -1
-                chunk_data['start_char'] = chunk_data['start_char'] or -1
-                chunk_data['end_char'] = chunk_data['end_char'] or -1
-                chunk_data['notebook_id'] = notebook_id
+        
+        # Retry logic for Windows file locking issues
+        max_retries = 3
+        retry_delay = 1
+        ref_tracker = get_reference_tracker()
+        
+        for attempt in range(max_retries):
+            try:
+                # Calculate content hashes and prepare data
+                data = []
+                content_hashes = {}
+                source_file = None
+                
+                for embedded_chunk in embedded_chunks:
+                    chunk_data = embedded_chunk.to_vector_db_format()
+                    
+                    # Calculate MD5 hash of content for deduplication
+                    content_hash = hashlib.md5(chunk_data['content'].encode()).hexdigest()
+                    chunk_data['content_hash'] = content_hash
+                    content_hashes[content_hash] = chunk_data
+                    
+                    if source_file is None:
+                        source_file = chunk_data.get('source_file', 'unknown')
+                    
+                    # Use content hash as base ID (stable across notebooks)
+                    chunk_data['id'] = f"chunk_{content_hash}"
+                    chunk_data['page_number'] = chunk_data['page_number'] or -1
+                    chunk_data['start_char'] = chunk_data['start_char'] or -1
+                    chunk_data['end_char'] = chunk_data['end_char'] or -1
+                    # Don't set notebook_id here - chunks are shared across notebooks
 
-                data.append(chunk_data)
+                    data.append(chunk_data)
+                
+                # Check for existing chunks by content hash
+                if content_hashes:
+                    hash_filter = " or ".join([f'content_hash == "{h}"' for h in content_hashes.keys()])
+                    
+                    try:
+                        existing_chunks = self.client.query(
+                            collection_name=self.collection_name,
+                            filter=hash_filter,
+                            output_fields=["content_hash", "vector", "id", "source_file"],
+                            limit=len(content_hashes)
+                        )
+                        
+                        existing_by_hash = {chunk['content_hash']: chunk for chunk in existing_chunks}
+                        
+                        # Separate new chunks from existing ones
+                        new_chunks = []
+                        reused_chunks = []
+                        chunk_ids_to_reference = []
+                        
+                        for content_hash, chunk_data in content_hashes.items():
+                            if content_hash in existing_by_hash:
+                                # Chunk exists, reuse it
+                                existing = existing_by_hash[content_hash]
+                                chunk_ids_to_reference.append(existing['id'])
+                                reused_chunks.append(content_hash)
+                                logger.info(f"Reusing existing chunk {existing['id']} for notebook {notebook_id}")
+                            else:
+                                # New chunk, need to insert
+                                chunk_data['vector'] = None  # Will be filled by embedding generator
+                                new_chunks.append(chunk_data)
+                        
+                        # Add references for reused chunks
+                        if chunk_ids_to_reference:
+                            ref_tracker.add_references_batch(chunk_ids_to_reference, notebook_id, source_file)
+                        
+                        if reused_chunks:
+                            logger.info(f"Reused {len(reused_chunks)} existing chunks for notebook {notebook_id}")
+                        
+                        # Insert only new chunks
+                        if new_chunks:
+                            self.client.insert(
+                                collection_name=self.collection_name,
+                                data=new_chunks
+                            )
+                            
+                            # Add references for new chunks
+                            new_chunk_ids = [chunk['id'] for chunk in new_chunks]
+                            ref_tracker.add_references_batch(new_chunk_ids, notebook_id, source_file)
+                            
+                            logger.info(f"Inserted {len(new_chunks)} new chunks for notebook {notebook_id}")
+                            return new_chunk_ids
+                        else:
+                            logger.info(f"All chunks already exist, only added references for notebook {notebook_id}")
+                            return chunk_ids_to_reference
+                            
+                    except Exception as e:
+                        logger.warning(f"Could not check for existing chunks (deduplication disabled): {e}")
+                        # Fallback to normal insert if deduplication check fails
+                        self.client.insert(
+                            collection_name=self.collection_name,
+                            data=data
+                        )
+                        chunk_ids = [chunk['id'] for chunk in data]
+                        ref_tracker.add_references_batch(chunk_ids, notebook_id, source_file)
+                        return chunk_ids
 
-            self.client.insert(
-                collection_name=self.collection_name,
-                data=data
-            )
+                # Fallback for no content hashes
+                self.client.insert(
+                    collection_name=self.collection_name,
+                    data=data
+                )
+                inserted_ids = [item['id'] for item in data]
+                ref_tracker.add_references_batch(inserted_ids, notebook_id, source_file)
+                logger.info(f"Inserted {len(inserted_ids)} embeddings into database (notebook {notebook_id})")
+                return inserted_ids
 
-            inserted_ids = [item['id'] for item in data]
-            logger.info(f"Inserted {len(inserted_ids)} embeddings into database (notebook {notebook_id})")
-
-            return inserted_ids
-
-        except Exception as e:
-            logger.error(f"Error inserting embeddings: {str(e)}")
-            raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Insert attempt {attempt + 1} failed, retrying in {retry_delay}s: {str(e)}")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"Error inserting embeddings after {max_retries} attempts: {str(e)}")
+                    raise
     
     def search(
         self,
@@ -251,14 +484,23 @@ class MilvusVectorDB:
                     }
                 }
 
-            # Build filter expression with notebook isolation
+            # If notebook_id is specified, get allowed chunk IDs from reference tracker
             final_filter = filter_expr
             if notebook_id is not None:
-                nb_filter = f"notebook_id == {notebook_id}"
-                if final_filter:
-                    final_filter = f"({final_filter}) and ({nb_filter})"
+                ref_tracker = get_reference_tracker()
+                allowed_chunk_ids = ref_tracker.get_chunks_for_notebook(notebook_id)
+                
+                if allowed_chunk_ids:
+                    # Build filter for allowed chunks
+                    chunk_filter = " or ".join([f'id == "{_escape_filter_string(cid)}"' for cid in allowed_chunk_ids])
+                    if final_filter:
+                        final_filter = f"({final_filter}) and ({chunk_filter})"
+                    else:
+                        final_filter = chunk_filter
                 else:
-                    final_filter = nb_filter
+                    # No chunks for this notebook, return empty results
+                    logger.info(f"No chunks found for notebook {notebook_id}")
+                    return []
 
             # Perform vector similarity search
             results = self.client.search(
@@ -271,7 +513,7 @@ class MilvusVectorDB:
                 output_fields=[
                     "content", "source_file", "source_type", "page_number",
                     "chunk_index", "start_char", "end_char", "metadata", "embedding_model",
-                    "notebook_id"
+                    "content_hash"
                 ]
             )
 
@@ -308,20 +550,31 @@ class MilvusVectorDB:
         notebook_id: Optional[int] = None,
         limit: int = 5000,
     ) -> List[Dict[str, Any]]:
-        """Get all chunks for a source using exact filtering (no vector query needed)."""
+        """Get all chunks for a source using reference tracker."""
         try:
-            safe_name = _escape_filter_string(source_file)
-            filter_expr = f'source_file == "{safe_name}"'
+            ref_tracker = get_reference_tracker()
+            
             if notebook_id is not None:
-                filter_expr += f' and notebook_id == {notebook_id}'
-
+                # Get chunks for this specific notebook
+                chunk_ids = ref_tracker.get_chunks_for_source(source_file, notebook_id)
+            else:
+                # Get all chunks for this source across all notebooks
+                chunk_ids = ref_tracker.get_chunks_for_source(source_file)
+            
+            if not chunk_ids:
+                logger.info(f"No chunks found for source '{source_file}'")
+                return []
+            
+            # Build filter expression for chunk IDs
+            chunk_filter = " or ".join([f'id == "{_escape_filter_string(cid)}"' for cid in chunk_ids])
+            
             results = self.client.query(
                 collection_name=self.collection_name,
-                filter=filter_expr,
+                filter=chunk_filter,
                 output_fields=[
                     "content", "source_file", "source_type", "page_number",
                     "chunk_index", "start_char", "end_char", "metadata", "embedding_model",
-                    "notebook_id"
+                    "content_hash"
                 ],
                 limit=limit,
             )
@@ -356,16 +609,25 @@ class MilvusVectorDB:
         notebook_id: int,
         limit: int = 10000,
     ) -> List[Dict[str, Any]]:
-        """Get all chunks for a notebook (for full-corpus BM25)."""
+        """Get all chunks for a notebook using reference tracker."""
         try:
-            filter_expr = f"notebook_id == {notebook_id}"
+            ref_tracker = get_reference_tracker()
+            chunk_ids = ref_tracker.get_chunks_for_notebook(notebook_id)
+            
+            if not chunk_ids:
+                logger.info(f"No chunks found for notebook {notebook_id}")
+                return []
+            
+            # Build filter expression for chunk IDs
+            chunk_filter = " or ".join([f'id == "{_escape_filter_string(cid)}"' for cid in chunk_ids])
+            
             results = self.client.query(
                 collection_name=self.collection_name,
-                filter=filter_expr,
+                filter=chunk_filter,
                 output_fields=[
                     "id", "content", "source_file", "source_type", "page_number",
                     "chunk_index", "start_char", "end_char", "metadata", "embedding_model",
-                    "notebook_id",
+                    "content_hash",
                 ],
                 limit=limit,
             )
@@ -409,31 +671,78 @@ class MilvusVectorDB:
             raise
     
     def delete_by_source(self, source_file: str, notebook_id: Optional[int] = None) -> int:
-        """Delete all vectors for a given source file."""
+        """Delete all vectors for a given source file with reference counting."""
+        ref_tracker = get_reference_tracker()
+        
         try:
-            safe_name = _escape_filter_string(source_file)
-            filter_expr = f'source_file == "{safe_name}"'
-            if notebook_id is not None:
-                filter_expr += f' and notebook_id == {notebook_id}'
-            self.client.delete(
-                collection_name=self.collection_name,
-                filter=filter_expr,
-            )
-            logger.info(f"Deleted vectors for source: {source_file}")
-            return 1
+            # Get chunk IDs for this source
+            chunk_ids = ref_tracker.get_chunks_for_source(source_file, notebook_id)
+            
+            if not chunk_ids:
+                logger.info(f"No chunks found for source {source_file}")
+                return 0
+            
+            # Remove notebook references
+            ref_tracker.delete_by_source(source_file, notebook_id)
+            
+            # Check which chunks are now orphaned (no notebook references)
+            orphaned_chunks = set()
+            for chunk_id in chunk_ids:
+                if ref_tracker.get_reference_count(chunk_id) == 0:
+                    orphaned_chunks.add(chunk_id)
+            
+            # Delete only orphaned chunks from Milvus
+            if orphaned_chunks:
+                # Build filter expression for orphaned chunks
+                chunk_filter = " or ".join([f'id == "{_escape_filter_string(cid)}"' for cid in orphaned_chunks])
+                self.client.delete(
+                    collection_name=self.collection_name,
+                    filter=chunk_filter
+                )
+                logger.info(f"Deleted {len(orphaned_chunks)} orphaned chunks from Milvus")
+            else:
+                logger.info(f"No orphaned chunks to delete (all chunks still referenced)")
+            
+            return len(chunk_ids)
+            
         except Exception as e:
             logger.error(f"Error deleting vectors for source {source_file}: {e}")
             return 0
 
     def delete_by_notebook(self, notebook_id: int) -> int:
-        """Delete all vectors for a given notebook."""
+        """Delete all vectors for a given notebook with reference counting."""
+        ref_tracker = get_reference_tracker()
+        
         try:
-            self.client.delete(
-                collection_name=self.collection_name,
-                filter=f'notebook_id == {notebook_id}',
-            )
-            logger.info(f"Deleted all vectors for notebook {notebook_id}")
-            return 1
+            # Get all chunk IDs for this notebook
+            chunk_ids = ref_tracker.get_chunks_for_notebook(notebook_id)
+            
+            if not chunk_ids:
+                logger.info(f"No chunks found for notebook {notebook_id}")
+                return 0
+            
+            # Remove all notebook references
+            ref_tracker.delete_by_notebook(notebook_id)
+            
+            # Check which chunks are now orphaned
+            orphaned_chunks = set()
+            for chunk_id in chunk_ids:
+                if ref_tracker.get_reference_count(chunk_id) == 0:
+                    orphaned_chunks.add(chunk_id)
+            
+            # Delete only orphaned chunks from Milvus
+            if orphaned_chunks:
+                chunk_filter = " or ".join([f'id == "{_escape_filter_string(cid)}"' for cid in orphaned_chunks])
+                self.client.delete(
+                    collection_name=self.collection_name,
+                    filter=chunk_filter
+                )
+                logger.info(f"Deleted {len(orphaned_chunks)} orphaned chunks from Milvus for notebook {notebook_id}")
+            else:
+                logger.info(f"No orphaned chunks to delete for notebook {notebook_id} (all chunks still referenced)")
+            
+            return len(chunk_ids)
+            
         except Exception as e:
             logger.error(f"Error deleting vectors for notebook {notebook_id}: {e}")
             return 0
@@ -450,7 +759,7 @@ class MilvusVectorDB:
             results = self.client.query(
                 collection_name=self.collection_name,
                 filter=f'id == "{safe_id}"',
-                output_fields=["id", "content", "metadata", "source_file", "source_type", "page_number", "chunk_index"]
+                output_fields=["id", "content", "metadata", "source_file", "source_type", "page_number", "chunk_index", "content_hash"]
             )
             
             logger.info(f"Query returned {len(results) if results else 0} results")
