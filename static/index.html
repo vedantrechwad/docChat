@@ -6,11 +6,15 @@
     <title>CarnetLM — Local AI Notebook</title>
     <meta name="description" content="Offline-first local AI notebook. Multi-notebook Q&A with notes, rich editing, and AI writing assist.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
-    <link rel="stylesheet" href="/static/theme.css">
+    <link rel="stylesheet" href="/static/theme.css?v=5.0">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script src="/static/icons.js"></script>
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
 </head>
 <body>
 
@@ -67,6 +71,8 @@
             <button class="tab active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
             <button class="tab" data-tab="notes" onclick="switchTab('notes')">Notes <span class="tab-badge" id="notesBadge">0</span></button>
             <button class="tab" data-tab="editor" onclick="switchTab('editor')">Editor</button>
+            <div style="flex:1"></div>
+            <button class="tab" onclick="toggleTheme()" title="Toggle Light/Dark Mode"><i data-lucide="sun" id="themeIcon" class="icon" style="width:14px;height:14px"></i></button>
         </div>
         <div class="main-content">
             <!-- Chat -->
@@ -1379,6 +1385,25 @@ function openModal(type) {
 }
 function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('active')); }
 function setupDragDrop() { const d=document.getElementById('fileDrop'); if(!d)return; d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('dragover');}); d.addEventListener('dragleave',()=>d.classList.remove('dragover')); d.addEventListener('drop',e=>{e.preventDefault();d.classList.remove('dragover');if(e.dataTransfer.files.length)handleFileUpload(e.dataTransfer.files);}); }
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', current);
+    localStorage.setItem('theme', current);
+    const icon = document.getElementById('themeIcon');
+    if (icon) {
+        icon.setAttribute('data-lucide', current === 'light' ? 'moon' : 'sun');
+        if (window.lucide) window.lucide.createIcons();
+    }
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const icon = document.getElementById('themeIcon');
+    if (icon) {
+        icon.setAttribute('data-lucide', current === 'light' ? 'moon' : 'sun');
+        if (window.lucide) window.lucide.createIcons();
+    }
+});
 </script>
 </body>
 </html>n setupDragDrop() { const d=document.getElementById('fileDrop'); if(!d)return; d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('dragover');}); d.addEventListener('dragleave',()=>d.classList.remove('dragover')); d.addEventListener('drop',e=>{e.preventDefault();d.classList.remove('dragover');if(e.dataTransfer.files.length)handleFileUpload(e.dataTransfer.files);}); }
