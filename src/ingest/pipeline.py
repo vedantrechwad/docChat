@@ -169,10 +169,12 @@ def ingest_chunks(
     if on_progress:
         on_progress("indexing", total, total)
 
+    # Always save source record, even if chunks were reused from other notebooks
     source_info = dict(source_info)
     source_info["index_status"] = "ready"
     source_id = memory.save_source(source_info, notebook_id=notebook_id)
 
+    # Save chunk texts for this notebook's source
     text_rows = [_chunk_to_text_row(c, notebook_id, source_id) for c in chunks]
     memory.save_chunk_texts(text_rows)
 

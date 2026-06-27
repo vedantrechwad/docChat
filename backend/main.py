@@ -9,6 +9,7 @@ import re
 import json
 import time
 import logging
+import hashlib
 import tempfile
 from pathlib import Path
 from typing import List, Optional
@@ -570,7 +571,9 @@ async def upload_files(
                         "file": fname, "status": "skipped", "message": "Already indexed",
                         "source_id": existing["id"], "chunks": existing.get("chunks", 0),
                     }
-
+                
+                # Note: If file exists in other notebooks, we still proceed to add it to this notebook
+                # The chunks will be reused via deduplication, but the source record will be created
                 _ingest_jobs._update(job_id, status=JobStatus.EXTRACTING, message="Extracting...", progress=10)
                 
                 # Check chunk cache first to avoid re-chunking
@@ -670,12 +673,48 @@ async def add_urls(request: URLRequest):
         nb_id = request.notebook_id
 
         def process_url(target_url: str, job_id: str, notebook: int):
+            # Calculate checksum from URL for deduplication
+            checksum = hashlib.md5(target_url.encode()).hexdigest()
+            
+            # Check if already exists in this notebook
+            existing = check_existing_checksum(_memory, checksum, notebook, target_url)
+            if existing:
+                _ingest_jobs._update(
+                    job_id, status=JobStatus.COMPLETED, progress=100,
+                    message="Already indexed (unchanged URL)",
+                    chunks_total=existing.get("chunks", 0),
+                    chunks_done=existing.get("chunks", 0),
+                )
+                return {
+                    "url": target_url, "title": existing.get("title", target_url),
+                    "chunks": existing.get("chunks", 0), "status": "skipped",
+                    "source_id": existing["id"],
+                }
+            
+            # Note: If URL exists in other notebooks, we still proceed to add it to this notebook
+            # The chunks will be reused via deduplication, but the source record will be created
             _ingest_jobs._update(job_id, status=JobStatus.EXTRACTING, message="Scraping...", progress=20)
-            chunks = _web_scraper.scrape_url(target_url)
-            if not chunks:
-                raise ValueError("No content extracted from URL")
-            source_name = chunks[0].source_file
-            page_title = (chunks[0].metadata or {}).get("title", source_name)
+            
+            # Check chunk cache first
+            from src.document_processing.chunk_cache import get_chunk_cache
+            chunk_cache = get_chunk_cache()
+            cached_chunks = chunk_cache.get_chunks(checksum)
+            
+            if cached_chunks:
+                chunks = cached_chunks
+                logger.info(f"Retrieved {len(chunks)} chunks from cache for URL {target_url}")
+                source_name = chunks[0].source_file
+                page_title = (chunks[0].metadata or {}).get("title", source_name)
+            else:
+                chunks = _web_scraper.scrape_url(target_url)
+                if not chunks:
+                    raise ValueError("No content extracted from URL")
+                source_name = chunks[0].source_file
+                page_title = (chunks[0].metadata or {}).get("title", source_name)
+                # Cache chunks for future reuse
+                chunking_config = {"source_type": "Website", "url": target_url}
+                chunk_cache.store_chunks(checksum, chunks, source_name, chunking_config)
+            
             _ingest_jobs._update(
                 job_id, status=JobStatus.EMBEDDING,
                 message=f"Embedding 0/{len(chunks)} chunks...", progress=25,
@@ -689,12 +728,14 @@ async def add_urls(request: URLRequest):
                     "name": source_name, "type": "Website",
                     "title": page_title,
                     "size": f"{len(chunks)} chunks", "chunks": len(chunks), "url": target_url,
+                    "checksum": checksum,
                     "index_status": "ready",
                 },
                 replace_existing=True,
                 on_progress=on_progress,
                 job_manager=_ingest_jobs,
                 job_id=job_id,
+                checksum=checksum,
             )
             return {"url": target_url, "title": page_title, "chunks": len(chunks), "status": "ok"}
 
@@ -720,11 +761,45 @@ async def add_youtube(request: YouTubeRequest):
     nb_id = request.notebook_id
 
     def process_yt(target_url: str, job_id: str, notebook: int):
+        # Calculate checksum from URL for deduplication
+        checksum = hashlib.md5(target_url.encode()).hexdigest()
+        
+        # Check if already exists in this notebook
+        existing = check_existing_checksum(_memory, checksum, notebook, target_url)
+        if existing:
+            _ingest_jobs._update(
+                job_id, status=JobStatus.COMPLETED, progress=100,
+                message="Already indexed (unchanged video)",
+                chunks_total=existing.get("chunks", 0),
+                chunks_done=existing.get("chunks", 0),
+            )
+            return {
+                "title": existing.get("name", target_url), "chunks": existing.get("chunks", 0),
+                "status": "skipped", "source_id": existing["id"],
+            }
+        
+        # Note: If video exists in other notebooks, we still proceed to add it to this notebook
+        # The chunks will be reused via deduplication, but the source record will be created
         _ingest_jobs._update(job_id, status=JobStatus.EXTRACTING, message="Extracting transcript...", progress=20)
-        chunks = _youtube_extractor.extract_transcript(target_url)
-        if not chunks:
-            raise ValueError("No transcript found")
-        source_name = chunks[0].source_file
+        
+        # Check chunk cache first
+        from src.document_processing.chunk_cache import get_chunk_cache
+        chunk_cache = get_chunk_cache()
+        cached_chunks = chunk_cache.get_chunks(checksum)
+        
+        if cached_chunks:
+            chunks = cached_chunks
+            logger.info(f"Retrieved {len(chunks)} chunks from cache for YouTube video {target_url}")
+            source_name = chunks[0].source_file
+        else:
+            chunks = _youtube_extractor.extract_transcript(target_url)
+            if not chunks:
+                raise ValueError("No transcript found")
+            source_name = chunks[0].source_file
+            # Cache chunks for future reuse
+            chunking_config = {"source_type": "YouTube", "url": target_url}
+            chunk_cache.store_chunks(checksum, chunks, source_name, chunking_config)
+        
         _ingest_jobs._update(
             job_id, status=JobStatus.EMBEDDING,
             message=f"Embedding 0/{len(chunks)} chunks...", progress=25,
@@ -737,12 +812,14 @@ async def add_youtube(request: YouTubeRequest):
             source_info={
                 "name": source_name, "type": "YouTube",
                 "size": f"{len(chunks)} chunks", "chunks": len(chunks), "url": target_url,
+                "checksum": checksum,
                 "index_status": "ready",
             },
             replace_existing=True,
             on_progress=on_progress,
             job_manager=_ingest_jobs,
             job_id=job_id,
+            checksum=checksum,
         )
         return {"title": source_name, "chunks": len(chunks), "status": "ok"}
 
@@ -1199,10 +1276,43 @@ async def add_clipboard_source(request: ClipboardRequest):
     title = request.title
 
     def process_clipboard():
+        # Calculate checksum from text for deduplication
+        checksum = hashlib.md5(text.encode()).hexdigest()
+        
+        # Check if already exists in this notebook
+        existing = check_existing_checksum(_memory, checksum, nb_id, title)
+        if existing:
+            _ingest_jobs._update(
+                jid, status=JobStatus.COMPLETED, progress=100,
+                message="Already indexed (unchanged text)",
+                chunks_total=existing.get("chunks", 0),
+                chunks_done=existing.get("chunks", 0),
+            )
+            return {
+                "title": existing.get("name", title), "chunks": existing.get("chunks", 0),
+                "status": "skipped", "source_id": existing["id"],
+            }
+        
+        # Note: If text exists in other notebooks, we still proceed to add it to this notebook
+        # The chunks will be reused via deduplication, but the source record will be created
         _ingest_jobs._update(jid, status=JobStatus.EXTRACTING, message="Processing...", progress=20)
-        chunks = _doc_processor.process_text_content(text=text, source_file=title, source_type="clipboard")
-        if not chunks:
-            raise ValueError("No content to process")
+        
+        # Check chunk cache first
+        from src.document_processing.chunk_cache import get_chunk_cache
+        chunk_cache = get_chunk_cache()
+        cached_chunks = chunk_cache.get_chunks(checksum)
+        
+        if cached_chunks:
+            chunks = cached_chunks
+            logger.info(f"Retrieved {len(chunks)} chunks from cache for clipboard text")
+        else:
+            chunks = _doc_processor.process_text_content(text=text, source_file=title, source_type="clipboard")
+            if not chunks:
+                raise ValueError("No content to process")
+            # Cache chunks for future reuse
+            chunking_config = {"source_type": "Clipboard"}
+            chunk_cache.store_chunks(checksum, chunks, title, chunking_config)
+        
         _ingest_jobs._update(
             jid, status=JobStatus.EMBEDDING,
             message=f"Embedding 0/{len(chunks)} chunks...", progress=25,
@@ -1215,12 +1325,14 @@ async def add_clipboard_source(request: ClipboardRequest):
             source_info={
                 "name": title, "type": "Clipboard",
                 "size": f"{len(text)} chars", "chunks": len(chunks),
+                "checksum": checksum,
                 "index_status": "ready",
             },
             replace_existing=True,
             on_progress=on_progress,
             job_manager=_ingest_jobs,
             job_id=jid,
+            checksum=checksum,
         )
         return {"title": title, "chunks": len(chunks), "status": "ok"}
 

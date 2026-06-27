@@ -89,6 +89,9 @@ class MilvusVectorDB:
             logger.info("Starting schema migration from version 1 to version 2...")
             ref_tracker = get_reference_tracker()
             
+            # Load collection before querying
+            self.client.load_collection(collection_name=self.collection_name)
+            
             # Export all existing chunks with their data
             results = self.client.query(
                 collection_name=self.collection_name,
@@ -132,10 +135,26 @@ class MilvusVectorDB:
             
             logger.info(f"Prepared {len(chunks_to_migrate)} chunks for migration")
             
-            # Drop and recreate collection without notebook_id field
+            # Release collection before dropping (required for Windows file locking)
+            self.client.release_collection(collection_name=self.collection_name)
+            
+            # Drop and recreate collection without notebook_id field with retry logic
             logger.info("Recreating collection with new schema...")
-            self.client.drop_collection(collection_name=self.collection_name)
-            self.collection_exists = False
+            max_retries = 3
+            retry_delay = 1
+            
+            for attempt in range(max_retries):
+                try:
+                    self.client.drop_collection(collection_name=self.collection_name)
+                    self.collection_exists = False
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Drop collection attempt {attempt + 1} failed, retrying in {retry_delay}s: {str(e)}")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        raise
             
             # Create new collection
             self._create_new_collection()
@@ -393,14 +412,13 @@ class MilvusVectorDB:
                         
                         for content_hash, chunk_data in content_hashes.items():
                             if content_hash in existing_by_hash:
-                                # Chunk exists, reuse it
+                                # Chunk exists, reuse it - don't insert, just add reference
                                 existing = existing_by_hash[content_hash]
                                 chunk_ids_to_reference.append(existing['id'])
                                 reused_chunks.append(content_hash)
                                 logger.info(f"Reusing existing chunk {existing['id']} for notebook {notebook_id}")
                             else:
-                                # New chunk, need to insert
-                                chunk_data['vector'] = None  # Will be filled by embedding generator
+                                # New chunk, need to insert with its embedding
                                 new_chunks.append(chunk_data)
                         
                         # Add references for reused chunks
@@ -410,7 +428,7 @@ class MilvusVectorDB:
                         if reused_chunks:
                             logger.info(f"Reused {len(reused_chunks)} existing chunks for notebook {notebook_id}")
                         
-                        # Insert only new chunks
+                        # Insert only new chunks with their vectors
                         if new_chunks:
                             self.client.insert(
                                 collection_name=self.collection_name,
