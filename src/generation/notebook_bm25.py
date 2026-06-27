@@ -1,5 +1,5 @@
 """
-Notebook-scoped BM25 corpus index for full keyword recall beyond vector top-K.
+Notebook-scoped BM25 corpus index backed by SQLite chunk_text.
 """
 
 import json
@@ -16,7 +16,7 @@ BM25_DIR = Path("./data/bm25")
 
 
 class NotebookBM25Cache:
-    """Lazy-built BM25 index per notebook from all Milvus chunks."""
+    """Lazy-built BM25 index per notebook from SQLite chunk_text."""
 
     def __init__(self):
         self._indexes: Dict[int, BM25Index] = {}
@@ -60,17 +60,28 @@ class NotebookBM25Cache:
                     pass
             logger.info(f"BM25 cache invalidated for notebook {notebook_id}")
 
-    def get_index(self, vector_db, notebook_id: int) -> BM25Index:
+    def _load_docs(self, memory, notebook_id: int, vector_db=None) -> List[Dict[str, Any]]:
+        docs = self._load_disk(notebook_id)
+        if docs is not None:
+            return docs
+        if memory is not None:
+            docs = memory.get_chunk_texts_by_notebook(notebook_id)
+            if docs:
+                self._save_disk(notebook_id, docs)
+                return docs
+        if vector_db is not None:
+            docs = vector_db.query_by_notebook(notebook_id=notebook_id, limit=10000)
+            if docs:
+                self._save_disk(notebook_id, docs)
+            return docs or []
+        return []
+
+    def get_index(self, memory, notebook_id: int, vector_db=None) -> BM25Index:
         with self._lock:
             if notebook_id in self._indexes and self._indexes[notebook_id].is_ready:
                 return self._indexes[notebook_id]
 
-        docs = self._load_disk(notebook_id)
-        if docs is None:
-            docs = vector_db.query_by_notebook(notebook_id=notebook_id, limit=10000)
-            if docs:
-                self._save_disk(notebook_id, docs)
-
+        docs = self._load_docs(memory, notebook_id, vector_db=vector_db)
         index = BM25Index()
         if docs:
             index.build_index(docs)
@@ -81,15 +92,15 @@ class NotebookBM25Cache:
         return index
 
     def search(
-        self, vector_db, notebook_id: int, query: str, k: int = 20
+        self, memory, notebook_id: int, query: str, k: int = 20, vector_db=None
     ) -> List[Tuple[int, float]]:
-        index = self.get_index(vector_db, notebook_id)
+        index = self.get_index(memory, notebook_id, vector_db=vector_db)
         if not index.is_ready:
             return []
         return index.search(query, k=k)
 
-    def get_document(self, vector_db, notebook_id: int, idx: int) -> Optional[Dict[str, Any]]:
-        index = self.get_index(vector_db, notebook_id)
+    def get_document(self, memory, notebook_id: int, idx: int, vector_db=None) -> Optional[Dict[str, Any]]:
+        index = self.get_index(memory, notebook_id, vector_db=vector_db)
         return index.get_document(idx)
 
 

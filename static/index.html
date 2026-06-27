@@ -14,8 +14,8 @@
 </head>
 <body>
 
-<!-- WebGL tessellation background -->
-<canvas id="geo-canvas"></canvas>
+<!-- Subtle gradient background -->
+<div class="gradient-bg"></div>
 
 <!-- Scanline overlay -->
 <div class="scanlines"></div>
@@ -37,7 +37,7 @@
             <div class="sidebar-section-title">Sources <span id="sourceCount" style="font-weight:400;color:var(--g30)">0</span></div>
         </div>
         <div style="padding:0 0.75rem; overflow-y:auto; max-height:160px;" id="sourceList"></div>
-        <div class="sidebar-actions">
+        <div class="sidebar-actions" id="sidebarActions" style="display:none;">
             <div class="sidebar-actions-row">
                 <button class="sidebar-add" onclick="openModal('upload')"><i data-lucide="file-up" class="icon" style="width:14px;height:14px"></i> File</button>
                 <button class="sidebar-add" onclick="openModal('url')"><i data-lucide="link" class="icon" style="width:14px;height:14px"></i> URL</button>
@@ -57,7 +57,7 @@
         <div class="model-section">
             <div class="model-label">AI model</div>
             <select class="model-select" id="modelSelect" onchange="selectModel(this.value)"><option>Loading...</option></select>
-            <div class="model-status" id="modelStatus"></div>
+            <div class="model-status" id="modelStatus"><span class="conn-dot"></span><span id="modelStatusText">Checking...</span></div>
         </div>
     </div>
 
@@ -262,7 +262,6 @@
     </div>
 </div>
 
-
 <div class="modal-overlay" id="modal-settings">
     <div class="modal" style="max-width:520px">
         <h3><i data-lucide="settings" class="icon" style="width:16px;height:16px"></i> Settings <button class="modal-close" onclick="closeModals()">&times;</button></h3>
@@ -286,9 +285,20 @@
             <button class="btn btn-soft btn-sm" style="margin-top:0.5rem" onclick="saveChunkPreset()">Save ingest settings</button>
         </div>
         <div class="settings-section">
+            <h4>Performance</h4>
+            <select class="input" id="settingsPerformanceMode">
+                <option value="fast">Fast — vector search, minimal latency</option>
+                <option value="quality">Quality — hybrid search + reranking</option>
+            </select>
+            <button class="btn btn-soft btn-sm" style="margin-top:0.5rem" onclick="savePerformanceMode()">Save performance mode</button>
+        </div>
+        <div class="settings-section">
             <h4>Web discovery</h4>
             <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;margin-bottom:0.5rem">
                 <input type="checkbox" id="settingsDiscoverEnabled"> Enable Discover in sidebar
+            </label>
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;margin-bottom:0.5rem">
+                <input type="checkbox" id="settingsDiscoverAutoSearch"> Auto-fetch relevant websites during chat
             </label>
             <select class="input" id="settingsDiscoverProvider" style="margin-bottom:0.5rem">
                 <option value="duckduckgo">DuckDuckGo (free)</option>
@@ -326,6 +336,9 @@
         </div>
     </div>
 </div>
+
+<!-- Toast container -->
+<div id="toastContainer" class="toast-container"></div>
 
 <!-- Quill -->
 <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
@@ -418,13 +431,8 @@
             // Cursor distortion
             vec2 toMouse = uv - u_mouse;
             float dist = length(toMouse);
-HEAD
             float strength = 0.06 * smoothstep(0.3, 0.0, dist);
             vec2 distorted = uv + normalize(toMouse + 0.001) * strength * (1.0 - dist * 3.5);
-
-            float strength = 0.04 * smoothstep(0.25, 0.0, dist);
-            vec2 distorted = uv + normalize(toMouse + 0.001) * strength * (1.0 - dist * 4.0);
-vedant
 
             float t = u_time;
             float geo = fractalTess(distorted * 2.0 - 1.0, t);
@@ -433,7 +441,6 @@ vedant
             float n1 = noise(distorted * 12.0 + t * 0.1);
             float n2 = noise(distorted * 5.0 - t * 0.05);
 
-HEAD
             // Build monochrome value — heavier geo weight for crisp lines
             float v = geo * 0.85 + n1 * 0.10 + n2 * 0.05;
 
@@ -447,19 +454,6 @@ HEAD
             vec3 lineColor = vec3(0.38, 0.38, 0.42);      // ~#616168 visible grey for geometry lines
             float brightness = v * 0.45;                   // was 0.08 — now lines are actually visible
             gl_FragColor = vec4(base + lineColor * brightness, 1.0);
-
-            // Build monochrome value
-            float v = geo * 0.7 + n1 * 0.12 + n2 * 0.06;
-
-            // Edge vignette
-            float vignette = 1.0 - smoothstep(0.3, 1.2, length((uv - 0.5) * vec2(1.4, 1.8)));
-            v *= vignette;
-
-            // Keep it very dark — just enough texture to feel alive
-            float brightness = v * 0.08;
-            vec3 matte = vec3(0.102, 0.102, 0.114);
-            gl_FragColor = vec4(matte + vec3(brightness), 1.0);
-vedant
         }
     `;
 
@@ -517,15 +511,31 @@ vedant
 })();
 </script>
 
-<!-- App Logic (original, unmodified) -->
+<!-- App Logic -->
 <script>
 const API = '';
 let activeNotebookId = null, notebooks = [], sources = [], chatHistory = [], notes = [], currentNoteId = null, isLoading = false, quill = null, currentSpeech = null, currentAudio = null, ttsAvailable = false, discoverEnabled = false, discoverCandidates = [];
 let followupContext = '', selectedChatText = '', grammarTimer = null, currentSourceId = null, currentSourceData = null, docSaveTimer = null, highlightChunkIndex = null;
+let performanceMode = 'fast', activeIngestJobs = [], healthPollTimer = null, ingestPollTimer = null;
 const ONBOARDING_KEY = 'carnetlm_onboarding_dismissed';
 
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    const el = document.createElement('div');
+    el.className = `toast toast-${type}`;
+    el.textContent = message;
+    container.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 3500);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
-    initQuill(); await loadNotebooks(); await loadModels(); await checkTTS(); setupDragDrop();
+    initQuill();
+    await loadPerformanceMode();
+    await loadNotebooks();
+    await loadModels();
+    setupDragDrop();
+    startHealthPolling();
     document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeModals(); }));
     document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModals(); dismissAI(); } });
     document.getElementById('chatMessages').addEventListener('mouseup', handleChatSelection);
@@ -690,61 +700,192 @@ async function loadNotebooks() {
 }
 function renderNotebooks() {
     const el = document.getElementById('notebookList');
-    if (!notebooks.length) { el.innerHTML = '<div style="padding:0.5rem;font-size:0.5rem;color:var(--g25, #404040);text-align:center;font-family:var(--font-mono);letter-spacing:0.08em">NO NOTEBOOKS</div>'; return; }
+    const actions = document.getElementById('sidebarActions');
+    if (!notebooks.length) { 
+        el.innerHTML = '<div style="padding:0.5rem;font-size:0.5rem;color:var(--g25, #404040);text-align:center;font-family:var(--font-mono);letter-spacing:0.08em">NO NOTEBOOKS</div>'; 
+        actions.style.display = 'none';
+        return; 
+    }
     el.innerHTML = notebooks.map(nb => `<div class="nb-item ${nb.id === activeNotebookId ? 'active' : ''}" onclick="switchNotebook(${nb.id})"><i data-lucide="book" class="icon" style="width:14px;height:14px;opacity:0.5"></i><span class="nb-name">${esc(nb.name)}</span><span class="nb-badge">${nb.chats}</span><button class="nb-delete" onclick="event.stopPropagation();deleteNotebook(${nb.id})" title="Delete"><i data-lucide="x" class="icon" style="width:12px;height:12px"></i></button></div>`).join('');
+    actions.style.display = activeNotebookId ? 'block' : 'none';
     refreshIcons(el);
 }
 async function switchNotebook(id) { activeNotebookId = id; renderNotebooks(); await Promise.all([loadSources(), loadHistory(), loadNotes(), loadDocument(), updateDiscoverButton()]); closeNoteEditor(); }
 async function createNotebook() { const n = prompt('Notebook name:'); if (!n) return; await fetch(`${API}/api/notebooks`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:n}) }); await loadNotebooks(); }
-async function deleteNotebook(id) { if (!confirm('Delete this notebook?')) return; const r = await fetch(`${API}/api/notebooks/${id}`, {method:'DELETE'}); if (r.ok) { if (activeNotebookId===id) activeNotebookId=null; await loadNotebooks(); } else { const e=await r.json(); alert(e.detail||'Cannot delete'); } }
+async function deleteNotebook(id) { if (!confirm('Delete this notebook?')) return; hideCitation(); const r = await fetch(`${API}/api/notebooks/${id}`, {method:'DELETE'}); if (r.ok) { if (activeNotebookId===id) activeNotebookId=null; await loadNotebooks(); } else { const e=await r.json(); alert(e.detail||'Cannot delete'); } }
+
+async function loadPerformanceMode() {
+    try {
+        const d = await fetch(`${API}/api/settings/performance`).then(r => r.json());
+        performanceMode = d.mode || 'fast';
+        updatePerfToggleUI();
+    } catch { performanceMode = 'fast'; }
+}
+
+function updatePerfToggleUI() {
+    document.querySelectorAll('.perf-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === performanceMode);
+    });
+}
+
+async function setPerformanceMode(mode) {
+    try {
+        const r = await fetch(`${API}/api/settings/performance`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode }),
+        });
+        if (!r.ok) throw new Error('Failed to save mode');
+        performanceMode = mode;
+        updatePerfToggleUI();
+        showToast(mode === 'fast' ? 'Fast mode — vector search, minimal latency' : 'Quality mode — hybrid search and reranking', 'info');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+function startHealthPolling() {
+    if (healthPollTimer) clearInterval(healthPollTimer);
+    healthPollTimer = setInterval(refreshConnectionStatus, 30000);
+}
+
+async function refreshConnectionStatus() {
+    try {
+        const health = await fetch(`${API}/api/health`).then(r => r.json());
+        updateConnectionUI(health);
+    } catch {
+        updateConnectionUI(null);
+    }
+}
+
+function updateConnectionUI(health) {
+    const st = document.getElementById('modelStatus');
+    const text = document.getElementById('modelStatusText');
+    if (!st || !text) return;
+    const dot = st.querySelector('.conn-dot');
+    if (!health) {
+        st.className = 'model-status offline';
+        if (dot) dot.className = 'conn-dot bad';
+        text.textContent = 'Offline';
+        return;
+    }
+    const ollamaUp = health.llm?.ollama?.available;
+    const hasModels = health.ollama_has_models;
+    const geminiUp = health.llm?.gemini?.available;
+    if (ollamaUp && hasModels) {
+        st.className = 'model-status online';
+        if (dot) dot.className = 'conn-dot ok';
+        text.textContent = `Local · ${health.active_provider || 'ollama'}`;
+    } else if (ollamaUp && !hasModels) {
+        st.className = 'model-status warn';
+        if (dot) dot.className = 'conn-dot warn';
+        text.textContent = 'Ollama up — pull a model';
+    } else if (geminiUp) {
+        st.className = 'model-status online';
+        if (dot) dot.className = 'conn-dot ok';
+        text.textContent = 'Cloud · Gemini';
+    } else {
+        st.className = 'model-status offline';
+        if (dot) dot.className = 'conn-dot bad';
+        text.textContent = 'Not connected';
+    }
+}
 
 async function loadModels() {
     try {
-        const res = await fetch(`${API}/api/models`);
-        const data = await res.json();
+        const [data, health] = await Promise.all([
+            fetch(`${API}/api/models`).then(r => r.json()),
+            fetch(`${API}/api/health`).then(r => r.json()),
+        ]);
         const sel = document.getElementById('modelSelect');
-        const st = document.getElementById('modelStatus');
         let opts = '';
-        if (data.gemini) {
-            opts += `<option value="${data.gemini.name}" ${data.gemini.active ? 'selected' : ''}>${data.gemini.name} (Cloud)</option>`;
-        }
         if (data.ollama_available && data.models.length) {
-            opts += data.models.map(m => `<option value="${m.name}" ${m.active && data.active_provider === 'ollama' ? 'selected' : ''}>${m.name} (${m.size})</option>`).join('');
+            opts += data.models.map(m => `<option value="${m.name}" ${m.active && data.active_provider === 'ollama' ? 'selected' : ''}>${m.name} · Local</option>`).join('');
+        }
+        if (data.gemini) {
+            opts += `<option value="${data.gemini.name}" ${data.gemini.active ? 'selected' : ''}>${data.gemini.name} · Cloud</option>`;
         }
         if (!opts) opts = '<option value="">No models</option>';
         sel.innerHTML = opts;
-        const online = data.ollama_available || data.gemini_available;
-        st.className = online ? 'model-status online' : 'model-status offline';
-        st.textContent = online ? '● CONNECTED' : '○ NOT RUNNING';
+        updateConnectionUI(health);
     } catch {
-        document.getElementById('modelStatus').className = 'model-status offline';
-        document.getElementById('modelStatus').textContent = '○ ERROR';
+        updateConnectionUI(null);
     }
 }
 async function selectModel(m) {
     if (!m) return;
     const r = await fetch(`${API}/api/models/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m }) });
-    if (r.ok) await loadModels();
+    if (r.ok) { await loadModels(); showToast('Model updated', 'info'); }
+    else showToast('Could not switch model', 'error');
 }
 async function checkTTS() {
     try { const r = await fetch(`${API}/api/tts/health`); const d = await r.json(); ttsAvailable = !!d.available; } catch { ttsAvailable = false; }
 }
 function switchTab(tab) { document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab)); document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id===`panel-${tab}`)); }
 
-async function loadSources() { try { const r=await fetch(`${API}/api/sources?notebook_id=${activeNotebookId}`); const d=await r.json(); sources=d.sources||[]; renderSources(); } catch(e){console.error(e);} }
+async function loadSources() {
+    try {
+        const r = await fetch(`${API}/api/sources?notebook_id=${activeNotebookId}`);
+        const d = await r.json();
+        sources = d.sources || [];
+        renderSources();
+        pollActiveIngestJobs();
+    } catch(e){ console.error(e); }
+}
+
+function pollActiveIngestJobs() {
+    if (!activeNotebookId) return;
+    if (ingestPollTimer) clearInterval(ingestPollTimer);
+    const tick = async () => {
+        try {
+            const d = await fetch(`${API}/api/ingest/jobs?notebook_id=${activeNotebookId}`).then(r => r.json());
+            const jobs = (d.jobs || []).filter(j => ['pending','extracting','embedding','indexing'].includes(j.status));
+            activeIngestJobs = jobs;
+            renderSources();
+            if (!jobs.length && ingestPollTimer) { clearInterval(ingestPollTimer); ingestPollTimer = null; }
+        } catch {}
+    };
+    tick();
+    ingestPollTimer = setInterval(tick, 1500);
+}
+
 function renderSources() {
     document.getElementById('sourceCount').textContent = sources.length;
     const el = document.getElementById('sourceList');
-    if (!sources.length) { el.innerHTML='<div style="padding:0.5rem;font-size:0.5rem;color:var(--g25, #404040);text-align:center;font-family:var(--font-mono);letter-spacing:0.08em">No sources</div>'; renderOnboarding(); return; }
-    el.innerHTML = sources.map(s => {
+    if (!sources.length && !activeIngestJobs.length) {
+        el.innerHTML = '<div class="src-empty"><i data-lucide="file-plus" style="width:20px;height:20px;opacity:0.25"></i><p>No sources yet</p><span>Drop files here or use the buttons above</span></div>';
+        refreshIcons(el);
+        renderOnboarding();
+        return;
+    }
+    const jobRows = activeIngestJobs.map(j => {
+        const chunk = j.chunks_total ? ` ${j.chunks_done || 0}/${j.chunks_total}` : '';
+        return `<div class="src-item src-indexing"><div class="src-icon"><span class="src-spinner"></span></div><span class="src-name">${esc(j.source_name)}<span style="color:var(--g40);font-size:0.55rem"> · ${esc(j.message || j.status)}${chunk}</span></span></div>`;
+    }).join('');
+    el.innerHTML = jobRows + sources.map(s => {
         const ic = sourceIcon(s.type);
+        const label = esc(s.display_name || s.name);
         const status = s.index_status && s.index_status !== 'ready' ? ` · ${s.index_status}` : '';
-        return `<div class="src-item" onclick="openSourceViewer(${s.id})" style="cursor:pointer"><div class="src-icon"><i data-lucide="${ic}" class="icon" style="width:14px;height:14px"></i></div><span class="src-name" title="${esc(s.name)}">${esc(s.name)}${status ? `<span style="color:var(--g40);font-size:0.55rem">${esc(status)}</span>` : ''}</span><button class="src-del" onclick="event.stopPropagation();deleteSource(${s.id})"><i data-lucide="x" class="icon" style="width:12px;height:12px"></i></button></div>`;
+        const deleting = s._deleting ? ' disabled' : '';
+        return `<div class="src-item" onclick="openSourceViewer(${s.id})" style="cursor:pointer"><div class="src-icon"><i data-lucide="${ic}" class="icon" style="width:14px;height:14px"></i></div><span class="src-name" title="${label}">${label}${status ? `<span style="color:var(--g40);font-size:0.55rem">${esc(status)}</span>` : ''}</span><button class="src-del" onclick="event.stopPropagation();deleteSource(${s.id})"${deleting} title="Delete source"><i data-lucide="x" class="icon" style="width:12px;height:12px"></i></button></div>`;
     }).join('');
     refreshIcons(el);
     renderOnboarding();
 }
-async function deleteSource(id) { await fetch(`${API}/api/sources/${id}`,{method:'DELETE'}); await loadSources(); }
+async function deleteSource(id) {
+    if (!confirm('Delete this source?')) return;
+    const src = sources.find(s => s.id === id);
+    if (src) src._deleting = true;
+    renderSources();
+    const r = await fetch(`${API}/api/sources/${id}`, { method: 'DELETE' });
+    if (r.ok) {
+        showToast('Source deleted', 'info');
+        await loadSources();
+    } else {
+        const e = await r.json().catch(() => ({}));
+        showToast(e.detail || 'Could not delete source', 'error');
+        if (src) delete src._deleting;
+        await loadSources();
+    }
+}
 
 async function loadHistory() { try { const r=await fetch(`${API}/api/history?notebook_id=${activeNotebookId}`); const d=await r.json(); chatHistory=d.history||[]; renderChat(); } catch(e){console.error(e);} }
 
@@ -810,12 +951,15 @@ async function sendMessage(e) {
                 if (!dataStr) continue;
                 let data;
                 try { data = JSON.parse(dataStr); } catch { continue; }
-                if (eventType === 'token' && data.text) {
+                if (eventType === 'status' && data.message) {
+                    bubble.innerHTML = `<span class="retrieval-status">${esc(data.message)}</span><span class="stream-cursor"></span>`;
+                } else if (eventType === 'token' && data.text) {
                     fullText += data.text;
-                    bubble.innerHTML = formatResponse(fullText, sourcesUsed) + '<span class="stream-cursor"></span>';
+                    bubble.textContent = fullText;
                     msgs.scrollTop = msgs.scrollHeight;
                 } else if (eventType === 'meta' || eventType === 'done') {
                     if (data.sources_used) sourcesUsed = data.sources_used;
+                    bubble.innerHTML = formatResponse(fullText, sourcesUsed) + '<span class="stream-cursor"></span>';
                 } else if (eventType === 'error') {
                     throw new Error(data.message || 'Stream error');
                 }
@@ -834,6 +978,7 @@ async function speakText(btn, i) {
     if (currentSpeech) { speechSynthesis.cancel(); currentSpeech = null; btn.classList.remove('speaking'); btn.innerHTML = speakHtml; refreshIcons(btn); return; }
     const t = chatHistory[i]?.content; if (!t) return;
     btn.classList.add('speaking'); btn.innerHTML = stopHtml; refreshIcons(btn);
+    if (!ttsAvailable) await checkTTS();
     if (ttsAvailable) {
         try {
             const r = await fetch(`${API}/api/tts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: t }) });
@@ -939,6 +1084,7 @@ async function handleFileUpload(files) {
     } catch (e) { st.innerHTML = `<div class="status-msg status-error">✕ ${e.message}</div>`; }
 }
 async function pollIngestJobs(jobIds, stEl) {
+    pollActiveIngestJobs();
     const poll = async () => {
         const statuses = await Promise.all(jobIds.map(id => fetch(`${API}/api/ingest/jobs/${id}`).then(r => r.json())));
         const msgs = statuses.map(s => {
@@ -946,11 +1092,17 @@ async function pollIngestJobs(jobIds, stEl) {
             return `${s.source_name}: ${s.message || s.status} (${s.progress || 0}%)${chunk}`;
         });
         stEl.innerHTML = `<div class="status-msg status-loading">${msgs.join('<br>')}</div>`;
-        const done = statuses.filter(s => s.status === 'completed' || s.status === 'failed').length;
+        const done = statuses.filter(s => ['completed', 'failed', 'cancelled'].includes(s.status)).length;
         if (done < jobIds.length) { setTimeout(poll, 1000); return; }
-        const failed = statuses.filter(s => s.status === 'failed');
-        if (failed.length) stEl.innerHTML = `<div class="status-msg status-error">✕ ${failed.map(f => f.error).join(', ')}</div>`;
-        else stEl.innerHTML = '<div class="status-msg status-success">✓ FILES PROCESSED</div>';
+        const failed = statuses.filter(s => s.status === 'failed' || (s.result && s.result.error));
+        if (failed.length) {
+            const errMsg = failed.map(f => f.error || f.result?.error || f.message).join(', ');
+            stEl.innerHTML = `<div class="status-msg status-error">✕ ${esc(errMsg)}</div>`;
+            showToast(errMsg, 'error');
+        } else {
+            stEl.innerHTML = '<div class="status-msg status-success">✓ FILES PROCESSED</div>';
+            showToast('Sources indexed', 'info');
+        }
         await loadSources();
         setTimeout(closeModals, 1200);
     };
@@ -981,7 +1133,8 @@ async function runSearch() {
 }
 function openCompareModal() {
     const el = document.getElementById('compareSourceList');
-    el.innerHTML = sources.map(s => `<label style="display:block;font-size:0.7rem;margin:0.25rem 0"><input type="checkbox" class="compare-chk" value="${s.name.replace(/"/g, '&quot;')}"> ${esc(s.name)}</label>`).join('');
+    el.innerHTML = sources.map(s => `<label style="display:block;font-size:0.7rem;margin:0.25rem 0"><input type="checkbox" class="compare-chk" value="${s.name.replace(/"/g, '&quot;')}"> ${esc(s.display_name || s.name)}</label>`).join('');
+    return true;
 }
 async function runCompare() {
     const names = [...document.querySelectorAll('.compare-chk:checked')].map(c => c.value);
@@ -990,7 +1143,8 @@ async function runCompare() {
     el.textContent = 'Comparing...';
     const r = await fetch(`${API}/api/compare`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_names: names, notebook_id: activeNotebookId }) });
     const d = await r.json();
-    el.textContent = d.comparison || d.detail || 'Failed';
+    if (!r.ok) { showToast(d.detail || 'Compare failed', 'error'); el.textContent = d.detail || 'Failed'; return; }
+    el.textContent = d.comparison || 'Done';
 }
 async function runSummary() {
     if (!confirm('Generate study guide from all sources?')) return;
@@ -999,10 +1153,11 @@ async function runSummary() {
     try {
         const r = await fetch(`${API}/api/summary`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notebook_id: activeNotebookId }) });
         const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || 'Summary failed');
         chatHistory.push({ role: 'user', content: 'Generate study guide', sources: [] });
         chatHistory.push({ role: 'assistant', content: d.summary, sources: (d.sources_used || []).map(n => ({ source_file: n })) });
         renderChat();
-    } catch (e) { alert(e.message); }
+    } catch (e) { showToast(e.message, 'error'); }
     finally { isLoading = false; }
 }
 async function exportChat(fmt) {
@@ -1138,9 +1293,8 @@ let _citationCounter = 0;
 function formatResponse(text, sources) {
     let html = esc(text);
     html = html.replace(/\[(\d+)\]/g, (match, num) => {
-        const idx = parseInt(num) - 1;
-        const src = sources?.[idx];
         const cid = 'c' + (++_citationCounter);
+        const src = sources?.find(s => s.reference === `[${num}]`) || sources?.[parseInt(num) - 1];
         if (src) {
             window._citationData[cid] = {
                 file: src.source_file || 'Unknown',
@@ -1148,7 +1302,7 @@ function formatResponse(text, sources) {
                 text: src.text || '',
                 source_id: src.source_id || null,
             };
-            return `<span class="citation-ref" data-cid="${cid}" onmouseenter="showCitation(event,'${cid}')" onmouseleave="hideCitation()" onclick="jumpToCitation('${cid}')">${num}</span>`;
+            return `<span class="citation-ref" data-cid="${cid}" onmouseenter="showCitation(event,'${cid}')" onmouseleave="hideCitation()">${num}</span>`;
         }
         return `<span class="citation-ref">${num}</span>`;
     });
@@ -1204,12 +1358,13 @@ async function openSettings() {
     openModal('settings');
     refreshIcons();
     try {
-        const [models, chunking, discover, health, tts] = await Promise.all([
+        const [models, chunking, discover, health, tts, perf] = await Promise.all([
             fetch(`${API}/api/models`).then(r => r.json()),
             fetch(`${API}/api/settings/chunking?notebook_id=${activeNotebookId || 1}`).then(r => r.json()),
             fetch(`${API}/api/settings/discover?notebook_id=${activeNotebookId || 1}`).then(r => r.json()),
             fetch(`${API}/api/health`).then(r => r.json()),
             fetch(`${API}/api/tts/health`).then(r => r.json()),
+            fetch(`${API}/api/settings/performance`).then(r => r.json()),
         ]);
         const active = models.active_provider === 'gemini' ? 'gemini-2.5-flash' : models.active;
         const ctx = models.context_size || '—';
@@ -1218,9 +1373,11 @@ async function openSettings() {
         document.getElementById('settingsChunkPreset').value = preset;
         document.getElementById('settingsIngestMode').value = chunking.ingest_mode || 'quality';
         document.getElementById('settingsDiscoverEnabled').checked = !!discover.enabled;
+        document.getElementById('settingsDiscoverAutoSearch').checked = !!discover.auto_on_topic;
         document.getElementById('settingsDiscoverProvider').value = discover.provider || 'duckduckgo';
         document.getElementById('settingsDiscoverApiKey').value = discover.api_key || '';
         document.getElementById('settingsDiscoverMax').value = discover.max_results || 8;
+        document.getElementById('settingsPerformanceMode').value = perf.mode || 'fast';
         discoverEnabled = !!discover.enabled;
         updateDiscoverButton();
         document.getElementById('settingsTtsInfo').textContent = tts.available
@@ -1228,7 +1385,7 @@ async function openSettings() {
             : 'Browser speech synthesis fallback';
         const llm = health.llm || {};
         document.getElementById('settingsHealth').innerHTML = [
-            { label: 'Ollama', ok: llm.ollama_available },
+            { label: 'Ollama', ok: llm.ollama?.available },
             { label: 'Milvus', ok: health.milvus?.available },
             { label: 'SQLite', ok: health.memory?.available },
             { label: 'TTS', ok: tts.available },
@@ -1255,10 +1412,10 @@ async function saveDiscoverSettings() {
     const body = {
         notebook_id: activeNotebookId,
         enabled: document.getElementById('settingsDiscoverEnabled').checked,
+        auto_on_topic: document.getElementById('settingsDiscoverAutoSearch').checked,
         provider: document.getElementById('settingsDiscoverProvider').value,
         api_key: document.getElementById('settingsDiscoverApiKey').value,
         max_results: parseInt(document.getElementById('settingsDiscoverMax').value, 10) || 8,
-        auto_on_topic: false,
     };
     await fetch(`${API}/api/settings/discover`, {
         method: 'PUT',
@@ -1268,6 +1425,22 @@ async function saveDiscoverSettings() {
     discoverEnabled = body.enabled;
     updateDiscoverButton();
     alert('Discovery settings saved');
+}
+
+async function savePerformanceMode() {
+    const mode = document.getElementById('settingsPerformanceMode').value;
+    try {
+        await fetch(`${API}/api/settings/performance`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode }),
+        });
+        performanceMode = mode;
+        updatePerfToggleUI();
+        showToast('Performance mode saved', 'info');
+    } catch (e) {
+        showToast('Failed to save setting', 'error');
+    }
 }
 
 async function updateDiscoverButton() {
@@ -1344,8 +1517,16 @@ function showCitation(event, cid) {
     document.getElementById('ctHeader').textContent = data.file + (data.page ? ' · PAGE ' + data.page : '');
     document.getElementById('ctText').textContent = data.text || 'Source text not available';
     const rect = event.target.getBoundingClientRect();
-    tt.style.left = Math.max(8, Math.min(rect.left - 140, window.innerWidth - 360)) + 'px';
-    tt.style.top = Math.max(8, rect.top - 210) + 'px';
+    const tooltipHeight = 200;
+    const tooltipWidth = 280;
+    let top = rect.bottom + 8;
+    if (top + tooltipHeight > window.innerHeight - 20) {
+        top = rect.top - tooltipHeight - 8;
+    }
+    let left = rect.left - (tooltipWidth / 2);
+    left = Math.max(8, Math.min(left, window.innerWidth - tooltipWidth - 8));
+    tt.style.left = left + 'px';
+    tt.style.top = top + 'px';
     tt.classList.add('visible');
 }
 
@@ -1353,7 +1534,7 @@ function hideCitation() { document.getElementById('citationTooltip').classList.r
 function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
 function openModal(type) {
     closeModals();
-    if (type === 'compare') openCompareModal();
+    if (type === 'compare' && !openCompareModal()) return;
     document.getElementById(`modal-${type}`).classList.add('active');
     ['uploadStatus','urlStatus','youtubeStatus','clipboardStatus','sourceViewerStatus','discoverStatus'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
     refreshIcons(document.getElementById(`modal-${type}`));

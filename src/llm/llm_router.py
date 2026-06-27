@@ -89,6 +89,7 @@ class LLMRouter:
 
         if self.ollama_available:
             logger.info(f"LLM Router: Ollama available, active model: {self.ollama_model}")
+            self._force_provider = "ollama"
         if not self.gemini_available and not self.ollama_available:
             logger.warning("LLM Router: No LLM provider available!")
 
@@ -224,25 +225,24 @@ class LLMRouter:
                     logger.error(f"Gemini also failed: {e}")
                     raise
         else:
-            # Default: Try Gemini first
-            if self.gemini_available:
-                try:
-                    return self._generate_gemini(prompt, system_prompt, temperature, max_tokens)
-                except Exception as e:
-                    logger.warning(f"Gemini failed ({e}), trying Ollama fallback...")
-
-            # Fallback to Ollama
+            # Offline-first: Ollama when available, else Gemini
             self.ollama_available = self._check_ollama()
             if self.ollama_available:
                 try:
                     return self._generate_ollama(prompt, system_prompt, temperature, max_tokens)
                 except Exception as e:
-                    logger.error(f"Ollama also failed: {e}")
+                    logger.warning(f"Ollama failed ({e}), trying Gemini fallback...")
+
+            if self.gemini_available:
+                try:
+                    return self._generate_gemini(prompt, system_prompt, temperature, max_tokens)
+                except Exception as e:
+                    logger.error(f"Gemini also failed: {e}")
                     raise
 
-        raise ConnectionError(
-            "No LLM provider available. Set GEMINI_API_KEY in .env or start Ollama (ollama serve)."
-        )
+            raise ConnectionError(
+                "No LLM provider available. Set GEMINI_API_KEY in .env or start Ollama (ollama serve)."
+            )
 
     def generate_stream(
         self,
@@ -259,8 +259,7 @@ class LLMRouter:
             return
 
         if provider == "gemini" and self.gemini_available:
-            response = self._generate_gemini(prompt, system_prompt, temperature, max_tokens)
-            yield response.content
+            yield from self._stream_gemini(prompt, system_prompt, temperature, max_tokens)
             return
 
         if self.ollama_available:
@@ -268,8 +267,7 @@ class LLMRouter:
             return
 
         if self.gemini_available:
-            response = self._generate_gemini(prompt, system_prompt, temperature, max_tokens)
-            yield response.content
+            yield from self._stream_gemini(prompt, system_prompt, temperature, max_tokens)
             return
 
         raise ConnectionError("No LLM provider available.")
@@ -316,6 +314,33 @@ class LLMRouter:
                     yield token
                 if data.get("done"):
                     break
+
+    def _stream_gemini(
+        self,
+        prompt: str,
+        system_prompt: Optional[str],
+        temperature: float,
+        max_tokens: int,
+    ):
+        """Stream tokens from Gemini API."""
+        from google.genai import types
+
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+        )
+        if system_prompt:
+            config.system_instruction = system_prompt
+
+        stream = self._gemini_client.models.generate_content_stream(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=config,
+        )
+        for chunk in stream:
+            text = getattr(chunk, "text", None) or ""
+            if text:
+                yield text
 
     def _generate_gemini(
         self, prompt: str, system_prompt: Optional[str],
@@ -413,11 +438,11 @@ class LLMRouter:
             return "ollama"
         if self._force_provider == "gemini" and self.gemini_available:
             return "gemini"
-        # Default priority
-        if self.gemini_available:
-            return "gemini"
+        # Offline-first default
         if self.ollama_available:
             return "ollama"
+        if self.gemini_available:
+            return "gemini"
         return "none"
 
     def _detect_ollama_context_size(self) -> Optional[int]:

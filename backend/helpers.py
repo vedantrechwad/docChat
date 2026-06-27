@@ -29,13 +29,14 @@ logger = logging.getLogger(__name__)
 
 def resolve_chunking(memory, llm_router, notebook_id: int, preset_override: Optional[str] = None) -> ChunkingService:
     settings = memory.get_chunking_settings(notebook_id)
+    perf = memory.get_performance_mode()
     preset = preset_override or settings.get("preset", "auto")
-    ingest_mode = settings.get("ingest_mode", "quality")
+    ingest_mode = "fast" if perf == "fast" else settings.get("ingest_mode", "quality")
     structure_first = ingest_mode == "fast"
 
     if preset == "auto":
         model = get_active_model_name(llm_router)
-        if ingest_mode == "fast":
+        if ingest_mode == "fast" or perf == "fast":
             preset = "compact"
         else:
             preset = recommend_chunk_preset(model)

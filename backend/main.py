@@ -57,7 +57,6 @@ def _initialize():
     from src.memory.local_memory import LocalMemoryLayer
     from src.ingest.ingest_jobs import IngestJobManager
     from src.ingest.pipeline import apply_chunking_to_processors
-    from src.tts.orpheus_client import OrpheusTTSClient
     from backend.helpers import resolve_chunking
 
     Path("./data").mkdir(exist_ok=True)
@@ -80,7 +79,7 @@ def _initialize():
     _web_scraper = WebScraper()
     _youtube_extractor = YouTubeTranscriptExtractor()
     _ingest_jobs = IngestJobManager()
-    _orpheus_tts = OrpheusTTSClient()
+    # TTS lazy-init on first use (faster startup)
 
     chunking = resolve_chunking(_memory, _llm_router, notebook_id=1)
     apply_chunking_to_processors(chunking, _doc_processor, _web_scraper, _youtube_extractor)
@@ -89,6 +88,7 @@ def _initialize():
         llm_router=_llm_router,
         embedding_generator=_embedding_generator,
         vector_db=_vector_db,
+        memory=_memory,
     )
 
     try:
@@ -108,6 +108,29 @@ def _shutdown():
         _memory.close()
     if _orpheus_tts:
         _orpheus_tts.close()
+
+
+def _get_tts():
+    """Lazy-init Orpheus TTS on first use."""
+    global _orpheus_tts
+    if _orpheus_tts is None:
+        from src.tts.orpheus_client import OrpheusTTSClient
+        _orpheus_tts = OrpheusTTSClient()
+    return _orpheus_tts
+
+
+def _conversation_turns() -> int:
+    if _memory and _memory.get_performance_mode() == "fast":
+        return 3
+    return 5
+
+
+def _require_quality_mode(feature: str):
+    if _memory and _memory.get_performance_mode() == "fast":
+        raise HTTPException(
+            status_code=403,
+            detail=f"{feature} is available in Quality mode only. Switch mode in the sidebar.",
+        )
 
 
 def _apply_notebook_chunking(notebook_id: int, preset_override: Optional[str] = None):
@@ -233,6 +256,9 @@ class TTSRequest(BaseModel):
 class NoteIndexRequest(BaseModel):
     indexed: bool = True
 
+class PerformanceSettingsUpdate(BaseModel):
+    mode: str = "fast"
+
 
 # ─── App ───────────────────────────────────────────────────────────────────────
 
@@ -264,9 +290,14 @@ async def health_check():
     milvus_ok = bool(_vector_db and _vector_db.collection_exists)
     memory_ok = bool(_memory)
     tts_status = _orpheus_tts.health_check() if _orpheus_tts else {"available": False}
+    llm_health = _llm_router.health_check() if _llm_router else {}
+    ollama_models = _llm_router.list_models() if _llm_router and _llm_router.ollama_available else []
     return {
         "status": "ok" if _llm_router and milvus_ok and memory_ok else "degraded",
-        "llm": _llm_router.health_check() if _llm_router else {},
+        "llm": llm_health,
+        "ollama_has_models": len(ollama_models) > 0,
+        "active_provider": _llm_router.get_active_provider() if _llm_router else "none",
+        "performance_mode": _memory.get_performance_mode() if _memory else "fast",
         "milvus": {"available": milvus_ok},
         "memory": {"available": memory_ok},
         "tts": tts_status,
@@ -350,6 +381,21 @@ async def update_chunking_settings(request: ChunkingSettingsUpdate):
     _memory.set_chunking_settings(settings, notebook_id=request.notebook_id)
     _apply_notebook_chunking(request.notebook_id)
     return {"status": "ok", "settings": settings}
+
+
+@app.get("/api/settings/performance")
+async def get_performance_settings():
+    if not _memory:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    return {"mode": _memory.get_performance_mode()}
+
+
+@app.put("/api/settings/performance")
+async def update_performance_settings(request: PerformanceSettingsUpdate):
+    if not _memory:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    _memory.set_performance_mode(request.mode)
+    return {"status": "ok", "mode": _memory.get_performance_mode()}
 
 
 @app.get("/api/settings/discover")
@@ -457,10 +503,16 @@ async def rename_notebook(notebook_id: int, request: NotebookRename):
 async def delete_notebook(notebook_id: int):
     if not _memory:
         raise HTTPException(status_code=503, detail="Not initialized")
+    if _ingest_jobs:
+        _ingest_jobs.cancel_notebook_jobs(notebook_id)
     if _memory.delete_notebook(notebook_id):
-        # Also delete vectors for this notebook from Milvus
         if _vector_db:
             _vector_db.delete_by_notebook(notebook_id)
+        _memory.delete_chunk_texts_by_notebook(notebook_id)
+        from src.generation.notebook_bm25 import notebook_bm25_cache
+        from src.ingest.pipeline import delete_notebook_source_files
+        notebook_bm25_cache.invalidate(notebook_id)
+        delete_notebook_source_files(notebook_id)
         return {"status": "ok"}
     raise HTTPException(status_code=404, detail="Notebook not found")
 
@@ -527,7 +579,10 @@ async def upload_files(
                     chunk.source_file = fname
 
                 if not chunks:
-                    return {"file": fname, "error": "No content extracted"}
+                    raise ValueError(
+                        "No content extracted from this file. "
+                        "The PDF may be image-only, or the file may be empty."
+                    )
 
                 _ingest_jobs._update(
                     job_id, status=JobStatus.EMBEDDING,
@@ -553,6 +608,8 @@ async def upload_files(
                     },
                     replace_existing=True,
                     on_progress=on_progress,
+                    job_manager=_ingest_jobs,
+                    job_id=job_id,
                 )
 
                 stored = store_source_file(notebook, source_id, Path(temp_path), fname)
@@ -599,8 +656,9 @@ async def add_urls(request: URLRequest):
             _ingest_jobs._update(job_id, status=JobStatus.EXTRACTING, message="Scraping...", progress=20)
             chunks = _web_scraper.scrape_url(target_url)
             if not chunks:
-                return {"url": target_url, "error": "No content extracted"}
+                raise ValueError("No content extracted from URL")
             source_name = chunks[0].source_file
+            page_title = (chunks[0].metadata or {}).get("title", source_name)
             _ingest_jobs._update(
                 job_id, status=JobStatus.EMBEDDING,
                 message=f"Embedding 0/{len(chunks)} chunks...", progress=25,
@@ -612,13 +670,16 @@ async def add_urls(request: URLRequest):
                 embedding_generator=_embedding_generator, vector_db=_vector_db, memory=_memory,
                 source_info={
                     "name": source_name, "type": "Website",
+                    "title": page_title,
                     "size": f"{len(chunks)} chunks", "chunks": len(chunks), "url": target_url,
                     "index_status": "ready",
                 },
                 replace_existing=True,
                 on_progress=on_progress,
+                job_manager=_ingest_jobs,
+                job_id=job_id,
             )
-            return {"url": target_url, "title": source_name, "chunks": len(chunks), "status": "ok"}
+            return {"url": target_url, "title": page_title, "chunks": len(chunks), "status": "ok"}
 
         _ingest_jobs.run_in_background(
             jid, lambda u=url, j=jid, n=nb_id: process_url(u, j, n),
@@ -663,6 +724,8 @@ async def add_youtube(request: YouTubeRequest):
             },
             replace_existing=True,
             on_progress=on_progress,
+            job_manager=_ingest_jobs,
+            job_id=job_id,
         )
         return {"title": source_name, "chunks": len(chunks), "status": "ok"}
 
@@ -683,17 +746,29 @@ async def get_sources(notebook_id: int = Query(1)):
 async def delete_source(source_id: int):
     if not _memory:
         raise HTTPException(status_code=503, detail="Not initialized")
-    # Get source info before deleting (needed to clean vectors)
     source_info = _memory.get_source_by_id(source_id)
-    if source_info and _memory.delete_source(source_id):
-        # Also delete vectors from Milvus
-        if _vector_db and source_info:
-            _vector_db.delete_by_source(
-                source_file=source_info["name"],
-                notebook_id=source_info["notebook_id"],
-            )
-        return {"status": "ok"}
-    raise HTTPException(status_code=404, detail="Source not found")
+    if not source_info:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    notebook_id = source_info["notebook_id"]
+    source_name = source_info["name"]
+
+    if _ingest_jobs:
+        _ingest_jobs.cancel_jobs_for_source(notebook_id, source_name)
+
+    if _vector_db:
+        _vector_db.delete_by_source(source_file=source_name, notebook_id=notebook_id)
+
+    from src.generation.notebook_bm25 import notebook_bm25_cache
+    from src.ingest.pipeline import delete_source_files
+
+    _memory.delete_chunk_texts_by_source(source_id)
+    if not _memory.delete_source(source_id):
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    notebook_bm25_cache.invalidate(notebook_id)
+    delete_source_files(notebook_id, source_id)
+    return {"status": "ok"}
 
 
 # ─── Chat ──────────────────────────────────────────────────────────────────────
@@ -705,7 +780,7 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=503, detail="Not initialized")
 
     conv_context = _memory.get_conversation_context(
-        notebook_id=request.notebook_id, max_turns=5,
+        notebook_id=request.notebook_id, max_turns=_conversation_turns(),
     )
 
     result = _rag_generator.generate_response(
@@ -729,8 +804,29 @@ async def chat_stream(request: ChatRequest):
     if not _rag_generator or not _memory:
         raise HTTPException(status_code=503, detail="Not initialized")
 
+    # Auto-discover: fetch relevant websites if enabled
+    discover_settings = _memory.get_discover_settings(request.notebook_id)
+    if discover_settings.get("enabled") and discover_settings.get("auto_on_topic"):
+        try:
+            from src.discovery.web_discovery import search_candidates
+            candidates = search_candidates(
+                query=request.query,
+                provider=discover_settings.get("provider", "duckduckgo"),
+                max_results=3,
+                api_key=discover_settings.get("api_key") or None,
+            )
+            if candidates:
+                # Auto-ingest top 2 results in background
+                top_urls = [c["url"] for c in candidates[:2]]
+                url_request = URLRequest(urls=top_urls, notebook_id=request.notebook_id)
+                # Trigger background ingest without blocking chat
+                import asyncio
+                asyncio.create_task(add_urls(url_request))
+        except Exception as e:
+            logger.warning(f"Auto-discover failed: {e}")
+
     conv_context = _memory.get_conversation_context(
-        notebook_id=request.notebook_id, max_turns=5,
+        notebook_id=request.notebook_id, max_turns=_conversation_turns(),
     )
 
     def event_generator():
@@ -743,15 +839,21 @@ async def chat_stream(request: ChatRequest):
                 notebook_id=request.notebook_id,
                 conversation_context=conv_context,
             ):
-                if event_type == "token":
+                if event_type == "status":
+                    yield f"event: status\ndata: {json.dumps(data)}\n\n"
+                elif event_type == "token":
                     full_text.append(data.get("text", ""))
+                    yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
                 elif event_type == "meta":
                     sources_used = data.get("sources_used", [])
                     retrieval_count = data.get("retrieval_count", 0)
+                    yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
                 elif event_type == "done":
                     sources_used = data.get("sources_used", sources_used)
                     retrieval_count = data.get("retrieval_count", retrieval_count)
-                yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+                    yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+                else:
+                    yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
             if full_text:
                 from src.generation.rag_v2 import RAGResult
@@ -1083,7 +1185,7 @@ async def add_clipboard_source(request: ClipboardRequest):
         _ingest_jobs._update(jid, status=JobStatus.EXTRACTING, message="Processing...", progress=20)
         chunks = _doc_processor.process_text_content(text=text, source_file=title, source_type="clipboard")
         if not chunks:
-            return {"error": "No content to process"}
+            raise ValueError("No content to process")
         _ingest_jobs._update(
             jid, status=JobStatus.EMBEDDING,
             message=f"Embedding 0/{len(chunks)} chunks...", progress=25,
@@ -1100,6 +1202,8 @@ async def add_clipboard_source(request: ClipboardRequest):
             },
             replace_existing=True,
             on_progress=on_progress,
+            job_manager=_ingest_jobs,
+            job_id=jid,
         )
         return {"title": title, "chunks": len(chunks), "status": "ok"}
 
@@ -1271,19 +1375,17 @@ async def save_notebook_document(notebook_id: int, request: DocumentSave):
 
 @app.get("/api/tts/health")
 async def tts_health():
-    if not _orpheus_tts:
-        return {"available": False}
-    status = _orpheus_tts.health_check()
-    status["voices"] = _orpheus_tts.list_voices() if status.get("available") else []
+    tts = _get_tts()
+    status = tts.health_check()
+    status["voices"] = tts.list_voices() if status.get("available") else []
     return status
 
 
 @app.post("/api/tts")
 async def synthesize_speech(request: TTSRequest):
-    if not _orpheus_tts:
-        raise HTTPException(status_code=503, detail="TTS not initialized")
     try:
-        audio = _orpheus_tts.synthesize(request.text, voice=request.voice, speed=request.speed)
+        tts = _get_tts()
+        audio = tts.synthesize(request.text, voice=request.voice, speed=request.speed)
         return Response(content=audio, media_type="audio/wav")
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"TTS unavailable: {e}")

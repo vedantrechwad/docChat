@@ -28,8 +28,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# ─── Context Profiles ──────────────────────────────────────────────────────────
-
 CONTEXT_PROFILES = {
     (0, 4096): {
         "max_context_chars": 2000,
@@ -67,6 +65,18 @@ CONTEXT_PROFILES = {
         "use_reranking": True,
         "label": "api",
     },
+}
+
+
+FAST_PROFILE = {
+    "max_context_chars": 2000,
+    "max_chunks": 5,
+    "max_tokens": 1000,
+    "top_k": 8,
+    "use_hyde": False,
+    "use_reranking": False,
+    "use_hybrid": False,
+    "label": "fast",
 }
 
 
@@ -114,21 +124,57 @@ Rules:
         llm_router: LLMRouter,
         embedding_generator: EmbeddingGenerator,
         vector_db: MilvusVectorDB,
+        memory=None,
     ):
         self.llm_router = llm_router
         self.embedding_generator = embedding_generator
         self.vector_db = vector_db
+        self.memory = memory
         self.bm25_index = BM25Index()
         self._embedding_cache: Dict[str, np.ndarray] = {}
         self._cache_max_size = 100
         logger.info("RAG Generator V2 initialized (hybrid search + adaptive context)")
 
     def _get_adaptive_settings(self) -> Dict[str, Any]:
-        """Get context/chunking settings adaptive to the active model."""
+        """Get context/chunking settings adaptive to performance mode and active model."""
+        if self.memory and self.memory.get_performance_mode() == "fast":
+            logger.info("RAG profile: fast (vector-only)")
+            return dict(FAST_PROFILE)
+
         ctx_size = self.llm_router.get_model_context_size()
-        profile = get_context_profile(ctx_size)
+        profile = dict(get_context_profile(ctx_size))
+        profile["use_hybrid"] = True
+        if ctx_size <= 32768:
+            profile["use_hyde"] = False
         logger.info(f"Adaptive profile: {profile['label']} (model ctx: {ctx_size})")
         return profile
+
+    def _apply_hybrid_search(
+        self,
+        vector_results: List[Dict[str, Any]],
+        notebook_id: Optional[int],
+        query: str,
+        top_k: int,
+        use_hybrid: bool,
+    ) -> List[Dict[str, Any]]:
+        if not use_hybrid or notebook_id is None:
+            return vector_results
+        try:
+            bm25_results = notebook_bm25_cache.search(
+                self.memory, notebook_id, query, k=top_k * 2, vector_db=self.vector_db
+            )
+            if bm25_results:
+                corpus_index = notebook_bm25_cache.get_index(
+                    self.memory, notebook_id, vector_db=self.vector_db
+                )
+                merged = reciprocal_rank_fusion(
+                    vector_results, bm25_results, corpus_index
+                )
+                logger.info(f"Hybrid search (corpus BM25): {len(merged)} fused results")
+                return merged
+        except Exception as e:
+            logger.warning(f"BM25 hybrid search failed (falling back to vector only): {e}")
+        return vector_results
 
     def _get_cached_embedding(self, query: str) -> np.ndarray:
         """Get query embedding with LRU caching."""
@@ -256,6 +302,7 @@ Rules:
             top_k = settings["top_k"]
             use_hyde = settings["use_hyde"]
             use_reranking = settings["use_reranking"]
+            use_hybrid = settings.get("use_hybrid", True)
 
             # ── Step 1: Query processing ───────────────────────────────
             search_query = query
@@ -283,30 +330,19 @@ Rules:
                 )
 
             # ── Step 3: Hybrid search (full-corpus BM25 + RRF) ─────────
-            try:
-                if notebook_id is not None:
-                    bm25_results = notebook_bm25_cache.search(
-                        self.vector_db, notebook_id, query, k=top_k * 2
-                    )
+            vector_results = self._apply_hybrid_search(
+                vector_results, notebook_id, query, top_k, use_hybrid
+            )
+            if not use_hybrid and notebook_id is None:
+                self._build_bm25_from_vector_results(vector_results)
+                if self.bm25_index.is_ready:
+                    bm25_results = self.bm25_index.search(query, k=top_k)
                     if bm25_results:
-                        corpus_index = notebook_bm25_cache.get_index(self.vector_db, notebook_id)
                         merged = reciprocal_rank_fusion(
-                            vector_results, bm25_results, corpus_index
+                            vector_results, bm25_results, self.bm25_index
                         )
                         vector_results = merged
-                        logger.info(f"Hybrid search (corpus BM25): {len(merged)} fused results")
-                else:
-                    self._build_bm25_from_vector_results(vector_results)
-                    if self.bm25_index.is_ready:
-                        bm25_results = self.bm25_index.search(query, k=top_k)
-                        if bm25_results:
-                            merged = reciprocal_rank_fusion(
-                                vector_results, bm25_results, self.bm25_index
-                            )
-                            vector_results = merged
-                            logger.info(f"Hybrid search: {len(merged)} fused results")
-            except Exception as e:
-                logger.warning(f"BM25 hybrid search failed (falling back to vector only): {e}")
+                        logger.info(f"Hybrid search: {len(merged)} fused results")
 
             # ── Step 4: Reranking ──────────────────────────────────────
             if use_reranking and len(vector_results) > max_chunks:
@@ -413,6 +449,7 @@ Provide a comprehensive answer with proper citations. Every factual statement mu
         top_k = settings["top_k"]
         use_hyde = settings["use_hyde"]
         use_reranking = settings["use_reranking"]
+        use_hybrid = settings.get("use_hybrid", True)
 
         search_query = self._hyde_rewrite(query) if use_hyde else query
 
@@ -430,18 +467,9 @@ Provide a comprehensive answer with proper citations. Every factual statement mu
         if not vector_results:
             return "", self.SYSTEM_PROMPT, [], 0, settings
 
-        try:
-            if notebook_id is not None:
-                bm25_results = notebook_bm25_cache.search(
-                    self.vector_db, notebook_id, query, k=top_k * 2
-                )
-                if bm25_results:
-                    corpus_index = notebook_bm25_cache.get_index(self.vector_db, notebook_id)
-                    vector_results = reciprocal_rank_fusion(
-                        vector_results, bm25_results, corpus_index
-                    )
-        except Exception as e:
-            logger.warning(f"BM25 hybrid search failed: {e}")
+        vector_results = self._apply_hybrid_search(
+            vector_results, notebook_id, query, top_k, use_hybrid
+        )
 
         if use_reranking and len(vector_results) > max_chunks:
             vector_results = self._rerank_chunks(query, vector_results, max_chunks)
@@ -465,6 +493,8 @@ Provide a comprehensive answer with proper citations. Every factual statement mu
             return
 
         try:
+            yield ("status", {"message": "Searching sources..."})
+
             prompt, system_prompt, sources_info, retrieval_count, settings = self.prepare_response(
                 query, notebook_id, conversation_context
             )

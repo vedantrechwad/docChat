@@ -133,8 +133,27 @@ class LocalMemoryLayer:
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chunk_text (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notebook_id INTEGER NOT NULL,
+                source_id INTEGER NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                citation_json TEXT DEFAULT '{}',
+                FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE,
+                FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chunk_text_notebook
+            ON chunk_text(notebook_id)
+        """)
+
         self.conn.commit()
         self._migrate_notes_column()
+        self._ensure_default_performance_mode()
 
     def _migrate_notes_column(self):
         cursor = self.conn.cursor()
@@ -143,6 +162,12 @@ class LocalMemoryLayer:
         if "indexed_in_rag" not in cols:
             cursor.execute("ALTER TABLE notes ADD COLUMN indexed_in_rag INTEGER DEFAULT 0")
             self.conn.commit()
+
+    def _ensure_default_performance_mode(self):
+        if not self.get_setting("performance_mode"):
+            self.set_setting("performance_mode", "fast")
+        if not self.get_setting("ingest_mode"):
+            self.set_setting("ingest_mode", "fast")
 
     def _ensure_default_notebook(self):
         """Create a 'Default' notebook if none exist."""
@@ -203,23 +228,12 @@ class LocalMemoryLayer:
             return cursor.rowcount > 0
 
     def delete_notebook(self, notebook_id: int) -> bool:
-HEAD
         """Delete a notebook and all its data."""
-        cursor = self.conn.cursor()
-        cursor.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
-        self.conn.commit()
-        return cursor.rowcount > 0
-
-        """Delete a notebook and all its data. Can't delete the last notebook."""
         with self._lock:
             cursor = self.conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM notebooks")
-            if cursor.fetchone()[0] <= 1:
-                return False  # Can't delete the last one
             cursor.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
             self.conn.commit()
             return cursor.rowcount > 0
-vedant
 
     def _touch_notebook(self, notebook_id: int):
         """Update the notebook's updated_at timestamp. Must be called within self._lock."""
@@ -343,6 +357,7 @@ vedant
             rows.append({
                 "id": row["id"],
                 "name": row["name"],
+                "display_name": meta.get("title") or row["name"],
                 "type": row["source_type"],
                 "size": row["size"],
                 "chunks": row["chunk_count"],
@@ -400,9 +415,64 @@ vedant
     def delete_source(self, source_id: int) -> bool:
         with self._lock:
             cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM chunk_text WHERE source_id = ?", (source_id,))
             cursor.execute("DELETE FROM sources WHERE id = ?", (source_id,))
             self.conn.commit()
             return cursor.rowcount > 0
+
+    # ─── Chunk text (BM25 corpus) ─────────────────────────────────────────
+
+    def save_chunk_texts(self, rows: List[Dict[str, Any]]) -> None:
+        if not rows:
+            return
+        with self._lock:
+            self.conn.executemany(
+                """INSERT INTO chunk_text (notebook_id, source_id, chunk_index, content, citation_json)
+                   VALUES (?, ?, ?, ?, ?)""",
+                [
+                    (
+                        r["notebook_id"],
+                        r["source_id"],
+                        r["chunk_index"],
+                        r["content"],
+                        json.dumps(r.get("citation_json", {})),
+                    )
+                    for r in rows
+                ],
+            )
+            self.conn.commit()
+
+    def get_chunk_texts_by_notebook(self, notebook_id: int) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT id, notebook_id, source_id, chunk_index, content, citation_json
+               FROM chunk_text WHERE notebook_id = ? ORDER BY source_id, chunk_index""",
+            (notebook_id,),
+        )
+        docs = []
+        for row in cursor.fetchall():
+            try:
+                citation = json.loads(row["citation_json"] or "{}")
+            except json.JSONDecodeError:
+                citation = {}
+            docs.append({
+                "id": row["id"],
+                "content": row["content"],
+                "citation": citation,
+                "metadata": {},
+                "embedding_model": "",
+            })
+        return docs
+
+    def delete_chunk_texts_by_source(self, source_id: int) -> None:
+        with self._lock:
+            self.conn.execute("DELETE FROM chunk_text WHERE source_id = ?", (source_id,))
+            self.conn.commit()
+
+    def delete_chunk_texts_by_notebook(self, notebook_id: int) -> None:
+        with self._lock:
+            self.conn.execute("DELETE FROM chunk_text WHERE notebook_id = ?", (notebook_id,))
+            self.conn.commit()
 
     # ─── Notes ─────────────────────────────────────────────────────────────
 
@@ -518,18 +588,32 @@ vedant
             )
             self.conn.commit()
 
+    def get_performance_mode(self) -> str:
+        mode = self.get_setting("performance_mode", "fast")
+        return mode if mode in ("fast", "quality") else "fast"
+
+    def set_performance_mode(self, mode: str) -> None:
+        if mode not in ("fast", "quality"):
+            mode = "fast"
+        self.set_setting("performance_mode", mode)
+
     def get_chunking_settings(self, notebook_id: int = 1) -> Dict[str, Any]:
         raw = self.get_setting(f"chunking_notebook_{notebook_id}", "")
+        perf = self.get_performance_mode()
+        default_ingest = "fast" if perf == "fast" else "quality"
         if raw:
             try:
-                return json.loads(raw)
+                settings = json.loads(raw)
+                if perf == "fast":
+                    settings["ingest_mode"] = "fast"
+                return settings
             except json.JSONDecodeError:
                 pass
         return {
             "preset": self.get_setting("chunking_preset", "auto"),
             "chunk_tokens": int(self.get_setting("chunk_tokens", "384") or 384),
             "overlap_tokens": int(self.get_setting("overlap_tokens", "100") or 100),
-            "ingest_mode": self.get_setting("ingest_mode", "quality"),
+            "ingest_mode": self.get_setting("ingest_mode", default_ingest),
         }
 
     def set_chunking_settings(self, settings: Dict[str, Any], notebook_id: int = 1) -> None:

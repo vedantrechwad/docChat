@@ -45,6 +45,8 @@ Or on Windows, just double-click `run.bat`.
 
 Then open **http://localhost:8000** in your browser.
 
+> **Note**: Runtime data (SQLite database, vector DB, embeddings cache) lives in the `data/` directory and is never shared via git. Each installation maintains its own local data.
+
 ### Optional: Ollama Fallback
 
 For fully offline use, you can configure a local Ollama model as fallback:
