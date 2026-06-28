@@ -113,7 +113,7 @@
             <div class="tab-container">
                 <button class="tab active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
                 <button class="tab" data-tab="guide" onclick="switchTab('guide')">Study Guide</button>
-                <button class="tab" data-tab="graph" onclick="switchTab('graph')">Concept Board</button>
+                <button class="tab" data-tab="graph" onclick="switchTab('graph')">Flashcards</button>
                 <button class="tab" data-tab="notes" onclick="switchTab('notes')">Notes <span class="tab-badge" id="notesBadge">0</span></button>
                 <button class="tab" data-tab="editor" onclick="switchTab('editor')">Editor</button>
             </div>
@@ -192,24 +192,39 @@
                 </div>
             </div>
 
-            <!-- Concept Board -->
+            <!-- Flashcards -->
             <div class="tab-panel" id="panel-graph" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
-                <div class="graph-toolbar" style="padding:0.5rem 1.25rem;border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;gap:1.5rem;flex-wrap:wrap;">
-                    <div style="font-weight:600;font-size:0.875rem;white-space:nowrap;">Interactive Concept Board</div>
+                <div class="graph-toolbar" style="padding:0.5rem 1.25rem;border-bottom:1px solid var(--border-subtle);display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;">
+                    <div style="display:flex;align-items:center;gap:1rem;">
+                        <div style="font-weight:600;font-size:0.875rem;white-space:nowrap;">Active Recall Flashcards</div>
+                        <!-- Mode Selector Toggle -->
+                        <div style="display:flex;gap:0.25rem;background:rgba(255,255,255,0.04);padding:0.2rem;border-radius:8px;">
+                            <button class="btn btn-sm" id="btnStudyMode" onclick="setFlashcardView('study')" style="background:var(--primary);color:#fff;border-radius:6px;height:28px;font-size:0.75rem;padding:0 0.75rem;border:none;">Study Mode</button>
+                            <button class="btn btn-sm" id="btnManageMode" onclick="setFlashcardView('manage')" style="background:transparent;color:var(--text-secondary);border-radius:6px;height:28px;font-size:0.75rem;padding:0 0.75rem;border:none;">Manage Deck</button>
+                        </div>
+                    </div>
                     
-                    <!-- AI Concept Generator Input -->
+                    <!-- AI Flashcard Generator Input -->
                     <div style="display:flex;gap:0.5rem;align-items:center;flex:1;max-width:450px;">
-                        <input type="text" class="input" id="conceptPromptInput" placeholder="Ask AI to generate a concept card (e.g. 'Explain fixed mindset')..." style="padding:0.35rem 0.75rem;font-size:0.8rem;width:100%;height:32px;background:rgba(255,255,255,0.03);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);" onkeydown="if(event.key==='Enter') generateConceptCard()" />
+                        <input type="text" class="input" id="conceptPromptInput" placeholder="Ask AI to generate flashcards (e.g. 'Test me on neuroplasticity')..." style="padding:0.35rem 0.75rem;font-size:0.8rem;width:100%;height:32px;background:rgba(255,255,255,0.03);border:1px solid var(--border-subtle);border-radius:6px;color:var(--text-primary);" onkeydown="if(event.key==='Enter') generateConceptCard()" />
                         <button class="btn btn-sm btn-primary" onclick="generateConceptCard()" id="btnGenerateConcept" style="height:32px;white-space:nowrap;display:flex;align-items:center;gap:0.25rem;"><span class="material-symbols-outlined" style="font-size:14px">smart_toy</span> Generate</button>
                     </div>
 
                     <div style="display:flex;gap:0.5rem">
-                        <button class="btn btn-sm btn-soft" onclick="addConceptCard()"><span class="material-symbols-outlined" style="font-size:14px">add</span> Add Concept</button>
+                        <button class="btn btn-sm btn-soft" onclick="addConceptCard()"><span class="material-symbols-outlined" style="font-size:14px">add</span> Add Card</button>
                         <button class="btn btn-sm btn-soft" onclick="loadKnowledgeGraph()"><span class="material-symbols-outlined" style="font-size:14px">refresh</span> Refresh</button>
                     </div>
                 </div>
-                <div class="graph-container" id="graphContainer" style="flex:1;position:relative;background:var(--background)">
-                    <!-- Concepts grid will render here -->
+                <div class="graph-container" id="graphContainer" style="flex:1;position:relative;background:var(--background);overflow-y:auto;display:flex;flex-direction:column;">
+                    <!-- Study Mode Active Player -->
+                    <div id="flashcardStudyView" style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;padding:2rem;gap:1.5rem;">
+                        <!-- Flashcard player goes here -->
+                    </div>
+
+                    <!-- Manage Deck Editor -->
+                    <div id="flashcardManageView" style="display:none;width:100%;height:100%;">
+                        <!-- Cards edit grid goes here -->
+                    </div>
                 </div>
             </div>
 
@@ -1827,13 +1842,19 @@ function runSummary() {
     }
 }
 
-// ─── Interactive Concept Board ────────────────────────────────────────────────
+// ─── Spaced Repetition Flashcards ────────────────────────────────────────────
 let currentConcepts = [];
+let flashcardViewMode = 'study';
+let activeFlashcardIndex = 0;
+let flashcardFlipped = false;
+let editingConceptId = null;
 
 async function loadKnowledgeGraph() {
     if (!activeNotebookId) return;
     const container = document.getElementById('graphContainer');
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.6"><div class="loading-spinner" style="margin-right:10px"></div> Synthesizing learning concepts...</div>';
+    // Keep placeholder spinner clean
+    const studyView = document.getElementById('flashcardStudyView');
+    studyView.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;opacity:0.6"><div class="loading-spinner" style="margin-right:10px"></div> Loading study deck...</div>';
 
     try {
         const r = await fetch(`${API}/api/concepts?notebook_id=${activeNotebookId}`);
@@ -1842,52 +1863,220 @@ async function loadKnowledgeGraph() {
         renderConceptBoard();
     } catch (e) {
         console.error(e);
-        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--red-primary)"><span class="material-symbols-outlined" style="margin-right:5px">error</span> Failed to load Concept Board</div>';
+        studyView.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--red-primary)"><span class="material-symbols-outlined" style="margin-right:5px">error</span> Failed to load study deck</div>';
     }
 }
 
+function setFlashcardView(mode) {
+    flashcardViewMode = mode;
+    const btnStudy = document.getElementById('btnStudyMode');
+    const btnManage = document.getElementById('btnManageMode');
+    const studyView = document.getElementById('flashcardStudyView');
+    const manageView = document.getElementById('flashcardManageView');
+
+    if (mode === 'study') {
+        btnStudy.style.background = 'var(--primary)';
+        btnStudy.style.color = '#fff';
+        btnManage.style.background = 'transparent';
+        btnManage.style.color = 'var(--text-secondary)';
+        studyView.style.display = 'flex';
+        manageView.style.display = 'none';
+    } else {
+        btnManage.style.background = 'var(--primary)';
+        btnManage.style.color = '#fff';
+        btnStudy.style.background = 'transparent';
+        btnStudy.style.color = 'var(--text-secondary)';
+        studyView.style.display = 'none';
+        manageView.style.display = 'block';
+    }
+    renderConceptBoard();
+}
+
+function flipFlashcard() {
+    flashcardFlipped = !flashcardFlipped;
+    renderConceptBoard();
+}
+
+function changeFlashcardIndex(offset) {
+    const target = activeFlashcardIndex + offset;
+    if (target >= 0 && target < currentConcepts.length) {
+        activeFlashcardIndex = target;
+        flashcardFlipped = false;
+        renderConceptBoard();
+    }
+}
+
+async function gradeFlashcard(cardId, grade) {
+    const concept = currentConcepts.find(c => c.id === cardId);
+    if (concept) {
+        if (grade === 'easy') {
+            concept.sort_order = Math.min(5, (concept.sort_order || 1) + 1);
+        } else if (grade === 'hard') {
+            concept.sort_order = 1;
+        }
+    }
+
+    flashcardFlipped = false;
+    if (activeFlashcardIndex + 1 < currentConcepts.length) {
+        activeFlashcardIndex++;
+    } else {
+        activeFlashcardIndex = 0;
+    }
+
+    renderConceptBoard();
+
+    try {
+        await fetch(`${API}/api/concepts/grade`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                concept_id: cardId,
+                grade: grade
+            })
+        });
+    } catch (e) {
+        console.error("Failed to grade card", e);
+    }
+}
+
+function resetStudySession() {
+    activeFlashcardIndex = 0;
+    flashcardFlipped = false;
+    renderConceptBoard();
+}
+
 function renderConceptBoard() {
-    const container = document.getElementById('graphContainer');
+    const studyView = document.getElementById('flashcardStudyView');
+    const manageView = document.getElementById('flashcardManageView');
+
     if (!currentConcepts.length) {
-        container.innerHTML = `
+        const emptyHtml = `
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;opacity:0.6;padding:2rem;text-align:center;">
-                <span class="material-symbols-outlined" style="font-size:36px;margin-bottom:0.5rem">space_dashboard</span>
-                <h4>No Concepts Extracted</h4>
-                <p style="font-size:0.875rem;margin-top:0.25rem">Extract initial concepts from your files or add new cards manually using the buttons above.</p>
+                <span class="material-symbols-outlined" style="font-size:36px;margin-bottom:0.5rem">card_membership</span>
+                <h4>Your Flashcard Deck is Empty</h4>
+                <p style="font-size:0.875rem;margin-top:0.25rem">Ask AI to generate flashcards or add new ones manually above.</p>
             </div>
         `;
+        studyView.innerHTML = emptyHtml;
+        manageView.innerHTML = emptyHtml;
         return;
     }
 
-    let html = '<div class="concept-grid">';
-    currentConcepts.forEach(c => {
-        const pillsHtml = sources.map(s => {
-            const isActive = c.links.includes(s.name);
-            return `
-                <span class="concept-link-pill ${isActive ? 'active' : ''}" onclick="toggleConceptLink(${c.id}, '${s.name}')">
-                    ${s.name}
-                </span>
-            `;
-        }).join('');
+    if (flashcardViewMode === 'study') {
+        if (activeFlashcardIndex >= currentConcepts.length) {
+            activeFlashcardIndex = 0;
+        }
+        const card = currentConcepts[activeFlashcardIndex];
 
-        html += `
-            <div class="concept-card">
-                <div class="concept-card-header">
-                    <input type="text" class="concept-title-input" value="${escapeHtml(c.title)}" onchange="updateConceptTitle(${c.id}, this.value)" placeholder="Concept Title" />
-                    <button class="concept-delete-btn" onclick="deleteConceptCard(${c.id})">&times;</button>
-                </div>
-                <textarea class="concept-explanation-input" onchange="updateConceptExplanation(${c.id}, this.value)" placeholder="Write a short explanation of this concept...">${escapeHtml(c.explanation)}</textarea>
-                <div class="concept-links-section">
-                    <div class="concept-links-title">Linked Sources</div>
-                    <div class="concept-links-pills">
-                        ${pillsHtml || '<div style="font-size:0.75rem;opacity:0.4">No sources uploaded to link</div>'}
+        // Format link pills
+        const linkPills = card.links.map(l => `<span class="concept-link-pill active" style="cursor:default">${l}</span>`).join('');
+
+        studyView.innerHTML = `
+            <div class="flashcard-scene" onclick="flipFlashcard()">
+                <div class="flashcard-card ${flashcardFlipped ? 'is-flipped' : ''}">
+                    <!-- Front -->
+                    <div class="flashcard-face flashcard-face-front">
+                        <div style="font-size:0.7rem;text-transform:uppercase;color:var(--primary);font-weight:700;letter-spacing:0.05em;">Recall Question</div>
+                        <div class="flashcard-text">${escapeHtml(card.title)}</div>
+                        <div style="font-size:0.75rem;opacity:0.4;display:flex;align-items:center;gap:0.25rem;"><span class="material-symbols-outlined" style="font-size:12px">touch_app</span> Click card to flip</div>
+                    </div>
+                    <!-- Back -->
+                    <div class="flashcard-face flashcard-face-back">
+                        <div style="font-size:0.7rem;text-transform:uppercase;color:var(--green-primary);font-weight:700;letter-spacing:0.05em;">Explanation / Answer</div>
+                        <div class="flashcard-text-back">${escapeHtml(card.explanation)}</div>
+                        <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:0.5rem;width:100%;margin-top:auto;">
+                            <div style="font-size:0.65rem;text-transform:uppercase;opacity:0.4;margin-bottom:0.25rem;">Sources</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:0.25rem">${linkPills || '<span style="font-size:0.7rem;opacity:0.3">None</span>'}</div>
+                        </div>
                     </div>
                 </div>
             </div>
+
+            <!-- Grade Actions (Fades in when flipped) -->
+            <div style="display:flex;flex-direction:column;align-items:center;gap:0.75rem;margin-top:0.5rem;min-height:90px;opacity: ${flashcardFlipped ? '1' : '0'};pointer-events:${flashcardFlipped ? 'all' : 'none'};transition:opacity 0.2s ease;">
+                <div style="font-size:0.75rem;opacity:0.6;font-weight:500;">How well did you recall this?</div>
+                <div style="display:flex;gap:0.75rem;">
+                    <button class="btn btn-sm" onclick="event.stopPropagation();gradeFlashcard(${card.id}, 'hard')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#fca5a5;padding:0.4rem 1.25rem;border-radius:6px;">Hard</button>
+                    <button class="btn btn-sm" onclick="event.stopPropagation();gradeFlashcard(${card.id}, 'good')" style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);color:#fcd34d;padding:0.4rem 1.25rem;border-radius:6px;">Good</button>
+                    <button class="btn btn-sm" onclick="event.stopPropagation();gradeFlashcard(${card.id}, 'easy')" style="background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);color:#6ee7b7;padding:0.4rem 1.25rem;border-radius:6px;">Easy</button>
+                </div>
+                <div style="font-size:0.7rem;opacity:0.4;margin-top:0.25rem;">Leitner Box level: ${card.sort_order || 1} / 5</div>
+            </div>
+
+            <!-- Navigation Controls -->
+            <div style="display:flex;align-items:center;gap:1.5rem;margin-top:1rem;">
+                <button class="btn btn-sm btn-soft" onclick="changeFlashcardIndex(-1)" ${activeFlashcardIndex === 0 ? 'disabled' : ''} style="display:flex;align-items:center;height:32px;"><span class="material-symbols-outlined" style="font-size:16px">chevron_left</span> Prev</button>
+                <span style="font-size:0.8rem;opacity:0.6;font-weight:500;">Card ${activeFlashcardIndex + 1} of ${currentConcepts.length}</span>
+                <button class="btn btn-sm btn-soft" onclick="changeFlashcardIndex(1)" ${activeFlashcardIndex + 1 === currentConcepts.length ? 'disabled' : ''} style="display:flex;align-items:center;height:32px;">Next <span class="material-symbols-outlined" style="font-size:16px">chevron_right</span></button>
+            </div>
         `;
-    });
-    html += '</div>';
-    container.innerHTML = html;
+    } else {
+        // Render static list deck editor with View and Edit modes
+        let html = '<div class="concept-grid">';
+        currentConcepts.forEach(c => {
+            const isEditing = (c.id === editingConceptId);
+            
+            const pillsHtml = sources.map(s => {
+                const isActive = c.links.includes(s.name);
+                if (isEditing) {
+                    return `
+                        <span class="concept-link-pill ${isActive ? 'active' : ''}" onclick="toggleConceptLink(${c.id}, '${s.name}')">
+                            ${s.name}
+                        </span>
+                    `;
+                } else {
+                    return isActive ? `
+                        <span class="concept-link-pill active" style="cursor:default">
+                            ${s.name}
+                        </span>
+                    ` : '';
+                }
+            }).join('');
+
+            if (isEditing) {
+                html += `
+                    <div class="concept-card editing" data-id="${c.id}" style="border-color: var(--primary); height: auto; min-height: 250px;">
+                        <div class="concept-card-header">
+                            <input type="text" class="concept-title-input" id="edit-title-${c.id}" value="${escapeHtml(c.title)}" placeholder="Card Question/Term" style="border-bottom: 1px solid var(--primary); background: rgba(255,255,255,0.03); padding: 0.25rem 0.5rem; border-radius: 4px;" />
+                            <button class="concept-delete-btn" onclick="deleteConceptCard(${c.id})">&times;</button>
+                        </div>
+                        <textarea class="concept-explanation-input" id="edit-explanation-${c.id}" placeholder="Card Answer / Definition..." style="border: 1px solid var(--border-subtle); padding: 0.5rem; background: rgba(255, 255, 255, 0.03); min-height: 90px; color: var(--text-primary); font-family: var(--font-body); font-size: 0.85rem; border-radius: 8px; resize: vertical;">${escapeHtml(c.explanation)}</textarea>
+                        <div class="concept-links-section">
+                            <div class="concept-links-title">Linked Sources</div>
+                            <div class="concept-links-pills">
+                                ${pillsHtml || '<div style="font-size:0.75rem;opacity:0.4">No sources uploaded to link</div>'}
+                            </div>
+                        </div>
+                        <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.75rem;padding-top:0.5rem;border-top:1px solid rgba(255,255,255,0.06);">
+                            <button class="btn btn-xs btn-soft" onclick="cancelEditingCard()" style="font-size:0.7rem;padding:0.25rem 0.5rem;height:24px;">Cancel</button>
+                            <button class="btn btn-xs btn-primary" onclick="saveEditingCard(${c.id})" style="font-size:0.7rem;padding:0.25rem 0.5rem;height:24px;">Save</button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="concept-card" data-id="${c.id}">
+                        <div class="concept-card-header">
+                            <div class="concept-card-view-title" style="font-weight:700;font-size:0.95rem;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px;" title="${escapeHtml(c.title)}">${escapeHtml(c.title)}</div>
+                            <button class="concept-delete-btn" onclick="deleteConceptCard(${c.id})">&times;</button>
+                        </div>
+                        <div class="concept-card-view-explanation" style="font-size:0.85rem;color:var(--text-secondary);flex:1;overflow-y:auto;line-height:1.4;margin:0.25rem 0;white-space:pre-wrap;word-break:break-word;">${escapeHtml(c.explanation || "No explanation provided yet. Click Edit to add one.")}</div>
+                        <div class="concept-links-section">
+                            <div class="concept-links-title">Linked Sources</div>
+                            <div class="concept-links-pills">
+                                ${pillsHtml || '<div style="font-size:0.75rem;opacity:0.3">No linked sources</div>'}
+                            </div>
+                        </div>
+                        <div style="display:flex;justify-content:flex-end;margin-top:auto;padding-top:0.5rem;border-top:1px solid rgba(255,255,255,0.06);">
+                            <button class="btn btn-xs btn-soft" onclick="startEditingCard(${c.id})" style="font-size:0.7rem;padding:0.25rem 0.5rem;height:24px;display:inline-flex;align-items:center;gap:0.2rem;"><span class="material-symbols-outlined" style="font-size:12px">edit</span> Edit</button>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+        html += '</div>';
+        manageView.innerHTML = html;
+    }
 }
 
 function escapeHtml(text) {
@@ -1958,7 +2147,9 @@ async function saveConceptToServer(concept) {
                 notebook_id: activeNotebookId,
                 title: concept.title,
                 explanation: concept.explanation,
-                links: concept.links
+                links: concept.links,
+                x: concept.x,
+                y: concept.y
             })
         });
     } catch (e) {
@@ -2012,6 +2203,37 @@ async function deleteConceptCard(id) {
     } catch (e) {
         console.error("Failed to delete concept card", e);
     }
+}
+
+function startEditingCard(id) {
+    editingConceptId = id;
+    renderConceptBoard();
+}
+
+function cancelEditingCard() {
+    editingConceptId = null;
+    loadKnowledgeGraph();
+}
+
+async function saveEditingCard(id) {
+    const titleVal = document.getElementById(`edit-title-${id}`).value.trim();
+    const explanationVal = document.getElementById(`edit-explanation-${id}`).value.trim();
+    
+    if (!titleVal) {
+        showToast("Card front/question cannot be empty", "warning");
+        return;
+    }
+    
+    const concept = currentConcepts.find(c => c.id === id);
+    if (concept) {
+        concept.title = titleVal;
+        concept.explanation = explanationVal;
+        await saveConceptToServer(concept);
+    }
+    
+    editingConceptId = null;
+    renderConceptBoard();
+    showToast("Card updated", "info");
 }
 
 </script>

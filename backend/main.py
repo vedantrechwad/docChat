@@ -1705,6 +1705,8 @@ class ConceptSaveRequest(BaseModel):
     title: str
     explanation: str
     links: List[str] = []
+    x: Optional[int] = None
+    y: Optional[int] = None
 
 class ConceptGenerateRequest(BaseModel):
     notebook_id: int
@@ -1725,22 +1727,27 @@ async def generate_concept_from_prompt(request: ConceptGenerateRequest):
         query_vector = _embedding_generator.generate_query_embedding(prompt_text)
         search_results = _vector_db.search(
             query_vector=query_vector.tolist(),
-            limit=4,
+            limit=6,
             notebook_id=request.notebook_id
         )
 
         context = "\n".join([r["content"] for r in search_results])
         sources = list(set([r["source_file"] for r in search_results if r.get("source_file")]))
 
-        llm_prompt = f"""You are a concept mapping agent. Using the source material provided, create a new concept card for the topic/question: "{prompt_text}"
+        llm_prompt = f"""You are an elite academic tutor. Your goal is to write a high-quality active recall study flashcard (front/back pair) for the topic/question: "{prompt_text}"
 
-Source Material:
-{context[:3000]}
+Grounding Source Material Context:
+{context[:4000]}
 
-Format your response EXACTLY as a JSON object with title and explanation keys, with no other text, commentary, or markdown formatting:
+Instructions:
+1. FRONT (title): Write a precise, clear question or key term (1-6 words) to place on the FRONT of the card (e.g. "What is neuroplasticity?" or "The role of myelin").
+2. BACK (explanation): Write a highly accurate, rigorous answer or definition (1-3 sentences) to place on the BACK of the card. Incorporate specific facts or mechanisms from the context if available.
+3. Fallback: If context is sparse or topic is off-topic, utilize your general academic knowledge to formulate an accurate and informative Q&A card.
+
+Format your response EXACTLY as a raw JSON object with keys "title" and "explanation":
 {{
-  "title": "Concept Name",
-  "explanation": "Short 1-2 sentence definition."
+  "title": "Front content",
+  "explanation": "Back content"
 }}"""
 
         res = _llm_router.generate(
@@ -1761,42 +1768,58 @@ Format your response EXACTLY as a JSON object with title and explanation keys, w
         if not explanation:
             explanation = f"Concept relating to: {prompt_text}"
 
+        # Shift order of all existing concepts to make room for the new one at the top-left
+        _memory.shift_concepts_order(request.notebook_id)
+
         new_id = _memory.create_concept(
             notebook_id=request.notebook_id,
             title=title,
             explanation=explanation,
-            links_json=json.dumps(sources)
+            links_json=json.dumps(sources),
+            x=50,
+            y=50,
+            sort_order=0
         )
 
         return {
             "id": new_id,
             "title": title,
             "explanation": explanation,
-            "links": sources
+            "links": sources,
+            "x": 50,
+            "y": 50,
+            "sort_order": 0
         }
     except Exception as e:
         logger.error(f"Failed to generate concept from prompt: {e}")
+        _memory.shift_concepts_order(request.notebook_id)
         new_id = _memory.create_concept(
             notebook_id=request.notebook_id,
             title="Generated Concept",
             explanation=f"Double click to edit. AI could not generate from prompt: {prompt_text}",
-            links_json="[]"
+            links_json="[]",
+            x=50,
+            y=50,
+            sort_order=0
         )
         return {
             "id": new_id,
             "title": "Generated Concept",
             "explanation": f"Double click to edit. AI could not generate from prompt: {prompt_text}",
-            "links": []
+            "links": [],
+            "x": 50,
+            "y": 50,
+            "sort_order": 0
         }
 
 @app.get("/api/concepts")
 async def get_concepts(notebook_id: int = Query(...)):
-    """Fetch all concepts for a notebook. If empty, auto-generate initial ones from sources."""
+    """Fetch all concepts for a notebook. If empty and never generated, auto-generate initial ones from sources."""
     if not _memory or not _llm_router or not _vector_db:
         raise HTTPException(status_code=503, detail="Not initialized")
 
     concepts = _memory.list_concepts(notebook_id)
-    if not concepts:
+    if not concepts and not _memory.has_generated_concepts(notebook_id):
         # Auto-generate initial concepts using LLM
         sources = _memory.get_sources(notebook_id)
         if sources:
@@ -1839,22 +1862,33 @@ Format your response EXACTLY as a JSON array of objects, with no other text, com
                     raw_json = raw_json.split("```")[1].split("```")[0].strip()
 
                 initial_concepts = json.loads(raw_json)
-                for ic in initial_concepts:
+                for index, ic in enumerate(initial_concepts):
                     links = [sources[0]["name"]] if len(sources) > 0 else []
+                    # Stagger coordinates horizontally: starts at 50, offsets by 350px per card
+                    stagger_x = 50 + (index * 350)
+                    stagger_y = 50
                     _memory.create_concept(
                         notebook_id=notebook_id,
                         title=ic.get("title", "Core Concept"),
                         explanation=ic.get("explanation", "Short explanation of the concept."),
-                        links_json=json.dumps(links)
+                        links_json=json.dumps(links),
+                        x=stagger_x,
+                        y=stagger_y,
+                        sort_order=index
                     )
+                _memory.mark_concepts_generated(notebook_id)
             except Exception as e:
                 logger.error(f"Failed to auto-generate concepts: {e}")
                 _memory.create_concept(
                     notebook_id=notebook_id,
                     title="Key Mindset Theme",
                     explanation="Double click to edit and add your concept explanation here.",
-                    links_json="[]"
+                    links_json="[]",
+                    x=50,
+                    y=50,
+                    sort_order=0
                 )
+                _memory.mark_concepts_generated(notebook_id)
             concepts = _memory.list_concepts(notebook_id)
 
     return {"concepts": concepts}
@@ -1871,7 +1905,9 @@ async def save_concept(request: ConceptSaveRequest):
             concept_id=request.id,
             title=request.title,
             explanation=request.explanation,
-            links_json=links_json
+            links_json=links_json,
+            x=request.x,
+            y=request.y
         )
         return {"status": "updated", "success": updated}
     else:
@@ -1879,9 +1915,46 @@ async def save_concept(request: ConceptSaveRequest):
             notebook_id=request.notebook_id,
             title=request.title,
             explanation=request.explanation,
-            links_json=links_json
+            links_json=links_json,
+            x=request.x or 100,
+            y=request.y or 100
         )
         return {"status": "created", "id": new_id}
+
+class ConceptReorderRequest(BaseModel):
+    notebook_id: int
+    concept_ids: List[int]
+
+@app.post("/api/concepts/reorder")
+async def reorder_concepts(request: ConceptReorderRequest):
+    """Reorder concepts for a notebook."""
+    if not _memory:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    try:
+        for index, cid in enumerate(request.concept_ids):
+            _memory.update_concept_order(cid, index)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to reorder concepts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ConceptGradeRequest(BaseModel):
+    concept_id: int
+    grade: str  # "easy", "good", "hard"
+
+@app.post("/api/concepts/grade")
+async def grade_concept(request: ConceptGradeRequest):
+    """Grade a flashcard's recall difficulty, updating its Leitner Box level."""
+    if not _memory:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    if request.grade not in ["easy", "good", "hard"]:
+        raise HTTPException(status_code=400, detail="Invalid grade value")
+    try:
+        new_box = _memory.grade_concept_card(request.concept_id, request.grade)
+        return {"status": "success", "new_box": new_box}
+    except Exception as e:
+        logger.error(f"Failed to grade flashcard: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/concepts/{concept_id}")
 async def delete_concept(concept_id: int):

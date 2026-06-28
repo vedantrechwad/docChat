@@ -52,6 +52,11 @@ class LocalMemoryLayer:
             )
         """)
 
+        try:
+            cursor.execute("ALTER TABLE notebooks ADD COLUMN concepts_generated INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS conversations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,10 +145,27 @@ class LocalMemoryLayer:
                 title TEXT NOT NULL,
                 explanation TEXT NOT NULL,
                 links_json TEXT DEFAULT '[]',
+                x INTEGER DEFAULT 100,
+                y INTEGER DEFAULT 100,
+                sort_order INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
             )
         """)
+
+        # Self-healing migration for existing concepts table
+        try:
+            cursor.execute("ALTER TABLE concepts ADD COLUMN x INTEGER DEFAULT 100")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE concepts ADD COLUMN y INTEGER DEFAULT 100")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE concepts ADD COLUMN sort_order INTEGER DEFAULT 0")
+        except Exception:
+            pass
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS chunk_text (
@@ -815,7 +837,7 @@ class LocalMemoryLayer:
     def list_concepts(self, notebook_id: int) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
         cursor.execute(
-            "SELECT id, notebook_id, title, explanation, links_json, created_at FROM concepts WHERE notebook_id = ? ORDER BY id ASC",
+            "SELECT id, notebook_id, title, explanation, links_json, x, y, sort_order, created_at FROM concepts WHERE notebook_id = ? ORDER BY sort_order ASC, id ASC",
             (notebook_id,)
         )
         concepts = []
@@ -826,21 +848,24 @@ class LocalMemoryLayer:
                 "title": r[2],
                 "explanation": r[3],
                 "links": json.loads(r[4] or "[]"),
-                "created_at": r[5]
+                "x": r[5] if r[5] is not None else 100,
+                "y": r[6] if r[6] is not None else 100,
+                "sort_order": r[7] if r[7] is not None else 0,
+                "created_at": r[8]
             })
         return concepts
 
-    def create_concept(self, notebook_id: int, title: str, explanation: str, links_json: str = "[]") -> int:
+    def create_concept(self, notebook_id: int, title: str, explanation: str, links_json: str = "[]", x: int = 100, y: int = 100, sort_order: int = 0) -> int:
         cursor = self.conn.cursor()
         now = datetime.now().isoformat()
         cursor.execute(
-            "INSERT INTO concepts (notebook_id, title, explanation, links_json, created_at) VALUES (?, ?, ?, ?, ?)",
-            (notebook_id, title, explanation, links_json, now)
+            "INSERT INTO concepts (notebook_id, title, explanation, links_json, x, y, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (notebook_id, title, explanation, links_json, x, y, sort_order, now)
         )
         self.conn.commit()
         return cursor.lastrowid
 
-    def update_concept(self, concept_id: int, title: Optional[str] = None, explanation: Optional[str] = None, links_json: Optional[str] = None) -> bool:
+    def update_concept(self, concept_id: int, title: Optional[str] = None, explanation: Optional[str] = None, links_json: Optional[str] = None, x: Optional[int] = None, y: Optional[int] = None) -> bool:
         cursor = self.conn.cursor()
         updates = []
         params = []
@@ -853,6 +878,12 @@ class LocalMemoryLayer:
         if links_json is not None:
             updates.append("links_json = ?")
             params.append(links_json)
+        if x is not None:
+            updates.append("x = ?")
+            params.append(x)
+        if y is not None:
+            updates.append("y = ?")
+            params.append(y)
         if not updates:
             return False
         params.append(concept_id)
@@ -863,11 +894,52 @@ class LocalMemoryLayer:
         self.conn.commit()
         return cursor.rowcount > 0
 
+    def shift_concepts_order(self, notebook_id: int):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE concepts SET sort_order = sort_order + 1 WHERE notebook_id = ?", (notebook_id,))
+        self.conn.commit()
+
+    def update_concept_order(self, concept_id: int, sort_order: int):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE concepts SET sort_order = ? WHERE id = ?", (sort_order, concept_id))
+        self.conn.commit()
+
     def delete_concept(self, concept_id: int) -> bool:
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM concepts WHERE id = ?", (concept_id,))
         self.conn.commit()
         return cursor.rowcount > 0
+
+    def has_generated_concepts(self, notebook_id: int) -> bool:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT concepts_generated FROM notebooks WHERE id = ?", (notebook_id,))
+        row = cursor.fetchone()
+        return bool(row and row[0])
+
+    def mark_concepts_generated(self, notebook_id: int):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE notebooks SET concepts_generated = 1 WHERE id = ?", (notebook_id,))
+        self.conn.commit()
+
+    def grade_concept_card(self, concept_id: int, grade: str) -> int:
+        """Update flashcard sort_order (Leitner Box level 1-5) based on user recall grade."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT sort_order FROM concepts WHERE id = ?", (concept_id,))
+        row = cursor.fetchone()
+        current_box = row[0] if row else 1
+        if not current_box or current_box < 1:
+            current_box = 1
+
+        if grade == "easy":
+            new_box = min(5, current_box + 1)
+        elif grade == "hard":
+            new_box = 1
+        else:  # good
+            new_box = current_box
+
+        cursor.execute("UPDATE concepts SET sort_order = ? WHERE id = ?", (new_box, concept_id))
+        self.conn.commit()
+        return new_box
 
     def close(self) -> None:
         if self.conn:
