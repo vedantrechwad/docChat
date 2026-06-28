@@ -20,14 +20,6 @@
 <body>
 
 <!-- ═══ Animated Blob Background ═══ -->
-<svg style="position:fixed;width:0;height:0;pointer-events:none;">
-    <defs>
-        <filter id="blob-blur">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="60" result="blur" />
-            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="blob-blur" />
-        </filter>
-    </defs>
-</svg>
 <div class="blob-container" id="blobContainer"></div>
 <div class="noise-overlay"></div>
 
@@ -52,38 +44,48 @@
             </div>
             <div class="logo-sub">AI Research Engine</div>
         </div>
-        <div class="sidebar-section">
-            <div class="sidebar-section-title">
-                Notebooks
-                <button class="sidebar-add" style="width:auto;margin:0;padding:2px 8px;border:none;font-size:0.6875rem;" onclick="createNotebook()" title="New Notebook">+ NEW</button>
+        <div class="sidebar-content custom-scrollbar">
+            <!-- Notebooks Section -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">
+                    Notebooks
+                    <button class="sidebar-add" style="width:auto;margin:0;padding:2px 8px;border:none;font-size:0.6875rem;" onclick="createNotebook()" title="New Notebook">+ NEW</button>
+                </div>
+            </div>
+            <div class="sidebar-list custom-scrollbar" id="notebookList"></div>
+
+            <!-- Sources Section -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Sources <span id="sourceCount" style="font-weight:400;color:var(--outline)">0</span></div>
+            </div>
+            <div id="sourceList" class="sidebar-list custom-scrollbar"></div>
+
+            <!-- Sidebar Actions Section -->
+            <div class="sidebar-actions" id="sidebarActions" style="display:none;">
+                <div class="sidebar-actions-row">
+                    <button class="sidebar-add" onclick="openModal('upload')"><span class="material-symbols-outlined" style="font-size:16px">upload_file</span> File</button>
+                    <button class="sidebar-add" onclick="openModal('url')"><span class="material-symbols-outlined" style="font-size:16px">link</span> URL</button>
+                    <button class="sidebar-add" onclick="openModal('youtube')"><span class="material-symbols-outlined" style="font-size:16px">smart_display</span> YouTube</button>
+                    <button class="sidebar-add" onclick="openModal('clipboard')"><span class="material-symbols-outlined" style="font-size:16px">content_paste</span> Paste</button>
+                </div>
+                <div class="sidebar-actions-row">
+                    <button class="sidebar-add" onclick="openModal('search')"><span class="material-symbols-outlined" style="font-size:16px">search</span> Search</button>
+                    <button class="sidebar-add" id="discoverBtn" style="display:none" onclick="openDiscoverModal()"><span class="material-symbols-outlined" style="font-size:16px">language</span> Discover</button>
+                    <button class="sidebar-add" onclick="runSummary()"><span class="material-symbols-outlined" style="font-size:16px">auto_awesome</span> Guide</button>
+                    <button class="sidebar-add" onclick="openModal('compare')"><span class="material-symbols-outlined" style="font-size:16px">compare_arrows</span> Compare</button>
+                </div>
             </div>
         </div>
-        <div class="sidebar-list" id="notebookList"></div>
-        <div class="sidebar-section" style="margin-top:0.5rem;">
-            <div class="sidebar-section-title">Sources <span id="sourceCount" style="font-weight:400;color:var(--outline)">0</span></div>
-        </div>
-        <div style="padding:0 0.75rem; overflow-y:auto; max-height:160px;" id="sourceList"></div>
-        <div class="sidebar-actions" id="sidebarActions" style="display:none;">
-            <div class="sidebar-actions-row">
-                <button class="sidebar-add" onclick="openModal('upload')"><span class="material-symbols-outlined" style="font-size:16px">upload_file</span> File</button>
-                <button class="sidebar-add" onclick="openModal('url')"><span class="material-symbols-outlined" style="font-size:16px">link</span> URL</button>
-                <button class="sidebar-add" onclick="openModal('youtube')"><span class="material-symbols-outlined" style="font-size:16px">smart_display</span> YouTube</button>
-                <button class="sidebar-add" onclick="openModal('clipboard')"><span class="material-symbols-outlined" style="font-size:16px">content_paste</span> Paste</button>
+
+        <div class="sidebar-footer">
+            <div class="settings-btn-wrap">
+                <button class="sidebar-add" style="width:100%" onclick="openSettings()"><span class="material-symbols-outlined" style="font-size:16px">settings</span> Settings</button>
             </div>
-            <div class="sidebar-actions-row">
-                <button class="sidebar-add" onclick="openModal('search')"><span class="material-symbols-outlined" style="font-size:16px">search</span> Search</button>
-                <button class="sidebar-add" id="discoverBtn" style="display:none" onclick="openDiscoverModal()"><span class="material-symbols-outlined" style="font-size:16px">language</span> Discover</button>
-                <button class="sidebar-add" onclick="runSummary()"><span class="material-symbols-outlined" style="font-size:16px">auto_awesome</span> Guide</button>
-                <button class="sidebar-add" onclick="openModal('compare')"><span class="material-symbols-outlined" style="font-size:16px">compare_arrows</span> Compare</button>
+            <div class="model-section">
+                <div class="model-label">AI model</div>
+                <select class="model-select" id="modelSelect" onchange="selectModel(this.value)"><option>Loading...</option></select>
+                <div class="model-status" id="modelStatus"><span class="conn-dot"></span><span id="modelStatusText">Checking...</span></div>
             </div>
-        </div>
-        <div class="settings-btn-wrap">
-            <button class="sidebar-add" style="width:100%" onclick="openSettings()"><span class="material-symbols-outlined" style="font-size:16px">settings</span> Settings</button>
-        </div>
-        <div class="model-section">
-            <div class="model-label">AI model</div>
-            <select class="model-select" id="modelSelect" onchange="selectModel(this.value)"><option>Loading...</option></select>
-            <div class="model-status" id="modelStatus"><span class="conn-dot"></span><span id="modelStatusText">Checking...</span></div>
         </div>
     </div>
 
@@ -112,7 +114,7 @@
                 <div id="onboardingWrap"></div>
                 <div class="chat-messages" id="chatMessages">
                     <div class="chat-empty">
-                        <div class="chat-empty-icon"><span class="material-symbols-outlined" style="font-size:32px;font-variation-settings:'FILL' 1">psychology</span></div>
+                        <div class="chat-empty-icon"><span class="material-symbols-outlined logo-icon" style="font-size:36px;font-variation-settings:'FILL' 1">auto_stories</span></div>
                         <h3>Ask anything about your documents</h3>
                         <p>Upload sources, then query for cited answers from your local model.</p>
                     </div>
@@ -442,13 +444,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             })
             .catch(() => { performanceMode = 'fast'; });
         
-        await fetchWithRetry(`${API}/api/notebooks`)
-            .then(r => r.json())
-            .then(data => {
-                notebooks = data;
-                renderNotebooks();
-            })
-            .catch(() => { notebooks = []; renderNotebooks(); });
+        await loadNotebooks();
         
         await fetchWithRetry(`${API}/api/models`)
             .then(r => r.json())
@@ -831,7 +827,7 @@ async function loadHistory() { try { const r=await fetch(`${API}/api/history?not
 function renderChat() {
     const el = document.getElementById('chatMessages');
     if (!chatHistory.length) {
-        el.innerHTML='<div class="chat-empty"><div class="chat-empty-icon"><span class="material-symbols-outlined" style="font-size:32px;font-variation-settings:\'FILL\' 1">psychology</span></div><h3>Ask anything about your documents</h3><p>Upload sources, then query for cited answers from your local model.</p></div>';
+        el.innerHTML='<div class="chat-empty"><div class="chat-empty-icon"><span class="material-symbols-outlined logo-icon" style="font-size:36px;font-variation-settings:\'FILL\' 1">auto_stories</span></div><h3>Ask anything about your documents</h3><p>Upload sources, then query for cited answers from your local model.</p></div>';
         refreshIcons(el);
         renderOnboarding();
         return;
