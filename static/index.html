@@ -106,14 +106,20 @@
     <div class="main">
         <!-- Header Tabs -->
         <div class="main-header">
+            <button class="tab" onclick="toggleSidebar('left')" title="Toggle Left Sidebar" style="background:none;border:none;margin-right:1rem;padding:0.45rem;display:inline-flex;align-items:center;justify-content:center;">
+                <span class="material-symbols-outlined" id="leftSidebarIcon" style="font-size:18px">menu_open</span>
+            </button>
             <div class="tab-container">
                 <button class="tab active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
                 <button class="tab" data-tab="notes" onclick="switchTab('notes')">Notes <span class="tab-badge" id="notesBadge">0</span></button>
                 <button class="tab" data-tab="editor" onclick="switchTab('editor')">Editor</button>
             </div>
             <div style="flex:1"></div>
-            <button class="tab" onclick="toggleTheme()" title="Toggle Light/Dark Mode" style="background:none;border:none;">
+            <button class="tab" onclick="toggleTheme()" title="Toggle Light/Dark Mode" style="background:none;border:none;display:inline-flex;align-items:center;justify-content:center;">
                 <span class="material-symbols-outlined" id="themeIcon" style="font-size:18px">light_mode</span>
+            </button>
+            <button class="tab" onclick="toggleSidebar('right')" title="Toggle Right Sidebar" style="background:none;border:none;margin-left:1rem;padding:0.45rem;display:inline-flex;align-items:center;justify-content:center;">
+                <span class="material-symbols-outlined" id="rightSidebarIcon" style="font-size:18px">dock_to_right</span>
             </button>
         </div>
 
@@ -677,7 +683,7 @@ function renderNotebooks() {
         actions.style.display = 'none';
         return; 
     }
-    el.innerHTML = notebooks.map(nb => `<div class="nb-item ${nb.id === activeNotebookId ? 'active' : ''}" onclick="switchNotebook(${nb.id})"><span class="material-symbols-outlined" style="font-size:16px;opacity:0.5">book</span><span class="nb-name">${esc(nb.name)}</span><span class="nb-badge">${nb.chats}</span><button class="nb-delete" onclick="event.stopPropagation();deleteNotebook(${nb.id})" title="Delete"><span class="material-symbols-outlined" style="font-size:14px">close</span></button></div>`).join('');
+    el.innerHTML = notebooks.map(nb => `<div class="nb-item ${nb.id === activeNotebookId ? 'active' : ''}" onclick="switchNotebook(${nb.id})"><span class="material-symbols-outlined" style="font-size:16px;opacity:0.5">book</span><span class="nb-name">${esc(nb.name)}</span><span class="nb-badge">${nb.sources || 0}</span><button class="nb-delete" onclick="event.stopPropagation();deleteNotebook(${nb.id})" title="Delete"><span class="material-symbols-outlined" style="font-size:14px">close</span></button></div>`).join('');
     actions.style.display = activeNotebookId ? 'block' : 'none';
     refreshIcons(el);
 }
@@ -822,6 +828,18 @@ function pollActiveIngestJobs() {
     ingestPollTimer = setInterval(tick, 1500);
 }
 
+function getSourceCategory(type, name) {
+    const normType = (type || '').toLowerCase();
+    const normName = (name || '').toLowerCase();
+    if (normType === 'youtube' || normName.includes('youtube.com') || normName.includes('youtu.be')) {
+        return 'YouTube';
+    }
+    if (normType === 'website' || normName.startsWith('http://') || normName.startsWith('https://')) {
+        return 'Web URLs';
+    }
+    return 'Files';
+}
+
 function renderSources() {
     document.getElementById('sourceCount').textContent = sources.length;
     const el = document.getElementById('sourceList');
@@ -831,17 +849,39 @@ function renderSources() {
         renderOnboarding();
         return;
     }
-    const jobRows = activeIngestJobs.map(j => {
+
+    const categorized = {
+        'Files': [],
+        'Web URLs': [],
+        'YouTube': []
+    };
+
+    activeIngestJobs.forEach(j => {
+        const cat = getSourceCategory('', j.source_name);
         const chunk = j.chunks_total ? ` ${j.chunks_done || 0}/${j.chunks_total}` : '';
-        return `<div class="src-item src-indexing"><div class="src-icon"><span class="src-spinner"></span></div><span class="src-name">${esc(j.source_name)}<span style="color:var(--outline);font-size:0.6875rem"> · ${esc(j.message || j.status)}${chunk}</span></span></div>`;
-    }).join('');
-    el.innerHTML = jobRows + sources.map(s => {
+        const html = `<div class="src-item src-indexing"><div class="src-icon"><span class="src-spinner"></span></div><span class="src-name">${esc(j.source_name)}<span style="color:var(--outline);font-size:0.6875rem"> · ${esc(j.message || j.status)}${chunk}</span></span></div>`;
+        categorized[cat].push(html);
+    });
+
+    sources.forEach(s => {
+        const cat = getSourceCategory(s.type, s.name);
         const ic = sourceIcon(s.type);
         const label = esc(s.display_name || s.name);
         const status = s.index_status && s.index_status !== 'ready' ? ` · ${s.index_status}` : '';
         const deleting = s._deleting ? ' disabled' : '';
-        return `<div class="src-item" onclick="openSourceViewer(${s.id})" style="cursor:pointer"><div class="src-icon"><span class="material-symbols-outlined" style="font-size:16px">${ic}</span></div><span class="src-name" title="${label}">${label}${status ? `<span style="color:var(--outline);font-size:0.6875rem">${esc(status)}</span>` : ''}</span><button class="src-del" onclick="event.stopPropagation();deleteSource(${s.id})"${deleting} title="Delete source"><span class="material-symbols-outlined" style="font-size:14px">close</span></button></div>`;
-    }).join('');
+        const html = `<div class="src-item" onclick="openSourceViewer(${s.id})" style="cursor:pointer"><div class="src-icon"><span class="material-symbols-outlined" style="font-size:16px">${ic}</span></div><span class="src-name" title="${label}">${label}${status ? `<span style="color:var(--outline);font-size:0.6875rem">${esc(status)}</span>` : ''}</span><button class="src-del" onclick="event.stopPropagation();deleteSource(${s.id})"${deleting} title="Delete source"><span class="material-symbols-outlined" style="font-size:14px">close</span></button></div>`;
+        categorized[cat].push(html);
+    });
+
+    let finalHtml = '';
+    for (const [category, items] of Object.entries(categorized)) {
+        if (items.length > 0) {
+            finalHtml += `<div class="src-category-header">${category}</div>`;
+            finalHtml += items.join('');
+        }
+    }
+
+    el.innerHTML = finalHtml;
     refreshIcons(el);
     renderOnboarding();
 }
@@ -1546,6 +1586,20 @@ function mobileNavSwitch(target, el) {
         openModal('upload');
     } else {
         switchTab(target);
+    }
+}
+
+function toggleSidebar(side) {
+    const sidebar = document.querySelector(`.sidebar-${side}`);
+    if (!sidebar) return;
+    sidebar.classList.toggle('collapsed');
+    const icon = document.getElementById(`${side}SidebarIcon`);
+    if (icon) {
+        if (side === 'left') {
+            icon.textContent = sidebar.classList.contains('collapsed') ? 'menu' : 'menu_open';
+        } else {
+            icon.textContent = sidebar.classList.contains('collapsed') ? 'vertical_split' : 'dock_to_right';
+        }
     }
 }
 </script>
