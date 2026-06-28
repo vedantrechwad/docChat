@@ -752,6 +752,13 @@ async function loadNotebooks() {
         else { sources = []; chatHistory = []; notes = []; renderSources(); renderChat(); renderNotes(); document.getElementById('notesBadge').textContent = '0'; closeNoteEditor(); renderStudyGuideView(null); }
     } catch (e) { console.error(e); }
 }
+async function sha256(message) {
+    const msgBuffer = new TextEncoder().encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 function renderNotebooks() {
     const el = document.getElementById('notebookList');
     const actions = document.getElementById('sidebarActions');
@@ -760,13 +767,120 @@ function renderNotebooks() {
         actions.style.display = 'none';
         return; 
     }
-    el.innerHTML = notebooks.map(nb => `<div class="nb-item ${nb.id === activeNotebookId ? 'active' : ''}" onclick="switchNotebook(${nb.id})"><span class="material-symbols-outlined" style="font-size:16px;opacity:0.5">book</span><span class="nb-name">${esc(nb.name)}</span><span class="nb-badge">${nb.sources || 0}</span><button class="nb-delete" onclick="event.stopPropagation();deleteNotebook(${nb.id})" title="Delete"><span class="material-symbols-outlined" style="font-size:14px">close</span></button></div>`).join('');
+    el.innerHTML = notebooks.map(nb => {
+        const lockHtml = nb.is_private ? `<span class="material-symbols-outlined" style="font-size:13px;color:var(--primary);margin-right:0.25rem;opacity:0.8;" title="Private Notebook">lock</span>` : '';
+        return `
+            <div class="nb-item ${nb.id === activeNotebookId ? 'active' : ''}" onclick="switchNotebook(${nb.id})">
+                <span class="material-symbols-outlined" style="font-size:16px;opacity:0.5">book</span>
+                <span class="nb-name">${esc(nb.name)}</span>
+                ${lockHtml}
+                <span class="nb-badge">${nb.sources || 0}</span>
+                <button class="nb-delete" onclick="event.stopPropagation();deleteNotebook(${nb.id})" title="Delete">
+                    <span class="material-symbols-outlined" style="font-size:14px">close</span>
+                </button>
+            </div>
+        `;
+    }).join('');
     actions.style.display = activeNotebookId ? 'block' : 'none';
     refreshIcons(el);
 }
-async function switchNotebook(id) { activeNotebookId = id; renderNotebooks(); await Promise.all([loadSources(), loadHistory(), loadNotes(), loadDocument(), updateDiscoverButton(), loadStudyGuide()]); closeNoteEditor(); }
-async function createNotebook(name) { const n = name || prompt('Notebook name:'); if (!n) return; await fetch(`${API}/api/notebooks`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:n}) }); await loadNotebooks(); }
-async function deleteNotebook(id) { if (!confirm('Delete this notebook?')) return; hideCitation(); const r = await fetch(`${API}/api/notebooks/${id}`, {method:'DELETE'}); if (r.ok) { if (activeNotebookId===id) activeNotebookId=null; await loadNotebooks(); } else { const e=await r.json(); alert(e.detail||'Cannot delete'); } }
+
+async function switchNotebook(id) {
+    const nb = notebooks.find(n => n.id === id);
+    if (nb && nb.is_private) {
+        // Try cached session storage token first
+        let hash = sessionStorage.getItem(`notebook_pwd_${id}`);
+        if (!hash) {
+            const pwd = prompt('This notebook is private. Enter password to open:');
+            if (pwd === null) return; // user cancelled
+            hash = await sha256(pwd);
+            
+            // Verify via API
+            const r = await fetch(`${API}/api/notebooks/${id}/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password_hash: hash })
+            });
+            const d = await r.json();
+            if (!d.success) {
+                alert('Invalid password');
+                return;
+            }
+            sessionStorage.setItem(`notebook_pwd_${id}`, hash);
+        }
+    }
+    activeNotebookId = id;
+    renderNotebooks();
+    await Promise.all([loadSources(), loadHistory(), loadNotes(), loadDocument(), updateDiscoverButton(), loadStudyGuide()]);
+    closeNoteEditor();
+}
+
+async function createNotebook(name) {
+    const n = name || prompt('Notebook name:');
+    if (!n) return;
+
+    const makePrivate = confirm('Do you want to make this a private notebook?');
+    let isPrivate = 0;
+    let hash = null;
+    if (makePrivate) {
+        const pwd = prompt('Create a password for this private notebook:');
+        if (!pwd) {
+            alert('Password is required for private notebooks. Notebook creation cancelled.');
+            return;
+        }
+        isPrivate = 1;
+        hash = await sha256(pwd);
+    }
+
+    const r = await fetch(`${API}/api/notebooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name: n,
+            is_private: isPrivate,
+            password_hash: hash
+        })
+    });
+
+    if (r.ok) {
+        const d = await r.json();
+        if (isPrivate) {
+            sessionStorage.setItem(`notebook_pwd_${d.id}`, hash);
+        }
+        await loadNotebooks();
+    }
+}
+
+async function deleteNotebook(id) {
+    const nb = notebooks.find(n => n.id === id);
+    let hash = "";
+    if (nb && nb.is_private) {
+        hash = sessionStorage.getItem(`notebook_pwd_${id}`) || "";
+        if (!hash) {
+            const pwd = prompt('This notebook is private. Enter password to delete:');
+            if (pwd === null) return;
+            hash = await sha256(pwd);
+        }
+    }
+
+    if (!confirm('Delete this notebook?')) return;
+    hideCitation();
+
+    let url = `${API}/api/notebooks/${id}`;
+    if (hash) {
+        url += `?password_hash=${hash}`;
+    }
+
+    const r = await fetch(url, { method: 'DELETE' });
+    if (r.ok) {
+        if (activeNotebookId === id) activeNotebookId = null;
+        sessionStorage.removeItem(`notebook_pwd_${id}`);
+        await loadNotebooks();
+    } else {
+        const e = await r.json();
+        alert(e.detail || 'Cannot delete');
+    }
+}
 
 async function loadPerformanceMode() {
     try {

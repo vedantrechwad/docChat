@@ -163,9 +163,14 @@ class YouTubeRequest(BaseModel):
 
 class NotebookCreate(BaseModel):
     name: str
+    is_private: Optional[int] = 0
+    password_hash: Optional[str] = None
 
 class NotebookRename(BaseModel):
     name: str
+
+class NotebookVerify(BaseModel):
+    password_hash: str
 
 class NoteCreate(BaseModel):
     title: str
@@ -492,8 +497,19 @@ async def list_notebooks():
 async def create_notebook(request: NotebookCreate):
     if not _memory:
         raise HTTPException(status_code=503, detail="Not initialized")
-    nb_id = _memory.create_notebook(request.name)
+    nb_id = _memory.create_notebook(
+        name=request.name,
+        is_private=request.is_private,
+        password_hash=request.password_hash
+    )
     return {"id": nb_id, "name": request.name, "status": "ok"}
+
+@app.post("/api/notebooks/{notebook_id}/verify")
+async def verify_notebook_password(notebook_id: int, request: NotebookVerify):
+    if not _memory:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    success = _memory.verify_notebook_password(notebook_id, request.password_hash)
+    return {"success": success}
 
 @app.put("/api/notebooks/{notebook_id}")
 async def rename_notebook(notebook_id: int, request: NotebookRename):
@@ -504,9 +520,17 @@ async def rename_notebook(notebook_id: int, request: NotebookRename):
     raise HTTPException(status_code=404, detail="Notebook not found")
 
 @app.delete("/api/notebooks/{notebook_id}")
-async def delete_notebook(notebook_id: int):
+async def delete_notebook(notebook_id: int, password_hash: Optional[str] = Query(None)):
     if not _memory:
         raise HTTPException(status_code=503, detail="Not initialized")
+
+    # If notebook is private, check password hash
+    notebooks = _memory.list_notebooks()
+    target = next((n for n in notebooks if n["id"] == notebook_id), None)
+    if target and target.get("is_private"):
+        if not password_hash or target.get("password_hash") != password_hash:
+            raise HTTPException(status_code=403, detail="Invalid password for private notebook")
+
     if _ingest_jobs:
         _ingest_jobs.cancel_notebook_jobs(notebook_id)
     if _memory.delete_notebook(notebook_id):

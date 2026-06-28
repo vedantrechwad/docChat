@@ -48,12 +48,24 @@ class LocalMemoryLayer:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                is_private INTEGER DEFAULT 0,
+                password_hash TEXT DEFAULT NULL
             )
         """)
 
         try:
             cursor.execute("ALTER TABLE notebooks ADD COLUMN concepts_generated INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE notebooks ADD COLUMN is_private INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE notebooks ADD COLUMN password_hash TEXT DEFAULT NULL")
         except Exception:
             pass
 
@@ -221,14 +233,14 @@ class LocalMemoryLayer:
 
     # ─── Notebooks ─────────────────────────────────────────────────────────
 
-    def create_notebook(self, name: str) -> int:
+    def create_notebook(self, name: str, is_private: int = 0, password_hash: Optional[str] = None) -> int:
         """Create a new notebook. Returns its ID."""
         with self._lock:
             cursor = self.conn.cursor()
             now = datetime.now().isoformat()
             cursor.execute(
-                "INSERT INTO notebooks (name, created_at, updated_at) VALUES (?, ?, ?)",
-                (name, now, now),
+                "INSERT INTO notebooks (name, created_at, updated_at, is_private, password_hash) VALUES (?, ?, ?, ?, ?)",
+                (name, now, now, is_private, password_hash),
             )
             self.conn.commit()
             return cursor.lastrowid
@@ -236,7 +248,7 @@ class LocalMemoryLayer:
     def list_notebooks(self) -> List[Dict[str, Any]]:
         """List all notebooks."""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT id, name, created_at, updated_at FROM notebooks ORDER BY updated_at DESC")
+        cursor.execute("SELECT id, name, created_at, updated_at, is_private, password_hash FROM notebooks ORDER BY updated_at DESC")
         notebooks = []
         for row in cursor.fetchall():
             nb_id = row["id"]
@@ -257,8 +269,22 @@ class LocalMemoryLayer:
                 "notes": note_count,
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
+                "is_private": row["is_private"] or 0,
+                "password_hash": row["password_hash"],
             })
         return notebooks
+
+    def verify_notebook_password(self, notebook_id: int, password_hash: str) -> bool:
+        """Verify password hash for private notebook."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT password_hash FROM notebooks WHERE id = ?", (notebook_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        stored_hash = row[0]
+        if not stored_hash:
+            return True
+        return stored_hash == password_hash
 
     def rename_notebook(self, notebook_id: int, name: str) -> bool:
         with self._lock:
