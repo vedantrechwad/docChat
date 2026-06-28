@@ -1147,3 +1147,14 @@
         .sidebar-actions { padding: 0.25rem 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
         .sidebar-actions-row { display: flex; gap: 0.5rem; flex-wrap: wrap; width: 100%; }
         .settings-btn-wrap { padding: 0.5rem 0.75rem; border-top: 1px solid var(--g15); }
+
+        /* ─── KaTeX math rendering overrides ─── */
+        .katex { font-size: 1.05em; color: var(--text-primary); }
+        .katex-display { margin: 0.75em 0; overflow-x: auto; overflow-y: hidden; padding: 0.5em 0; }
+        .katex-display > .katex { text-align: center; }
+        .msg-bubble .katex-display { background: var(--accent-glow); border-radius: var(--radius-sm); padding: 0.625em 0.75em; }
+        .msg-bubble .katex-html { white-space: nowrap; }
+        .katex .mathnormal, .katex .mathit { color: var(--accent-blue); }
+        .katex .mord.text { color: var(--text-primary); }
+        .math-fallback { font-family: var(--font-mono); font-size: 0.85em; color: var(--accent-blue); background: var(--accent-glow); padding: 0.125em 0.375em; border-radius: var(--radius-sm); }
+        div.math-fallback { display: block; text-align: center; padding: 0.5em; margin: 0.5em 0; }

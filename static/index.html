@@ -8,7 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
-    <link rel="stylesheet" href="/static/theme.css?v=5.0">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5EGIE6eoWR5p3JeEVHHiVk7ado3oiS1rowJAhiacJhblhAMse2BR" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mQ8Tqp7C1ZUCEDXi2o4GjLFcKiJGRRCOBIfRDmlKoky1MoN1WQXO" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="/static/theme.css?v=5.2">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script src="/static/icons.js"></script>
     <script>
@@ -747,6 +749,7 @@ function renderChat() {
         return `<div class="msg msg-assistant"><div class="msg-bubble">${html}${srcTags}</div><div class="msg-actions"><button class="msg-action-btn" onclick="speakText(this,${i})" title="Read aloud"><i data-lucide="volume-2" class="icon" style="width:12px;height:12px"></i> Speak</button><button class="msg-action-btn" onclick="showNoteSelector(event,${i})" title="Save to note"><i data-lucide="bookmark-plus" class="icon" style="width:12px;height:12px"></i> Note</button></div></div>`;
     }).join('');
     refreshIcons(el);
+    renderMath(el);
     el.scrollTop = el.scrollHeight;
     renderOnboarding();
 }
@@ -800,6 +803,7 @@ async function sendMessage(e) {
                 } else if (eventType === 'meta' || eventType === 'done') {
                     if (data.sources_used) sourcesUsed = data.sources_used;
                     bubble.innerHTML = formatResponse(fullText, sourcesUsed) + '<span class="stream-cursor"></span>';
+                    renderMath(bubble);
                 } else if (eventType === 'error') {
                     throw new Error(data.message || 'Stream error');
                 }
@@ -1131,7 +1135,51 @@ window._citationData = {};
 let _citationCounter = 0;
 
 function formatResponse(text, sources) {
-    let html = esc(text);
+    // --- Render LaTeX math blocks directly to HTML before escaping ---
+    const mathRendered = [];
+    let safeText = text;
+
+    // Helper: render a LaTeX expression to HTML via KaTeX, or return raw text as fallback
+    function renderLatex(latex, displayMode) {
+        if (typeof katex !== 'undefined') {
+            try {
+                return katex.renderToString(latex, { displayMode, throwOnError: false, output: 'html' });
+            } catch (e) { /* fall through to raw */ }
+        }
+        return displayMode ? `<div class="math-fallback">[${latex}]</div>` : `<span class="math-fallback">(${latex})</span>`;
+    }
+
+    // Order matters: extract display math first, then inline, to avoid partial matches.
+    // $$...$$ (display)
+    safeText = safeText.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
+        const idx = mathRendered.length;
+        mathRendered.push(renderLatex(latex.trim(), true));
+        return `%%MATH_${idx}%%`;
+    });
+    // \[...\] (display)
+    safeText = safeText.replace(/\\\[([\s\S]+?)\\\]/g, (_, latex) => {
+        const idx = mathRendered.length;
+        mathRendered.push(renderLatex(latex.trim(), true));
+        return `%%MATH_${idx}%%`;
+    });
+    // \(...\) (inline)
+    safeText = safeText.replace(/\\\((.+?)\\\)/g, (_, latex) => {
+        const idx = mathRendered.length;
+        mathRendered.push(renderLatex(latex.trim(), false));
+        return `%%MATH_${idx}%%`;
+    });
+    // $...$ (inline, single line, not empty, not preceded/followed by digit to avoid money)
+    safeText = safeText.replace(/(?<![\d\\])\$([^\$\n]+?)\$(?!\d)/g, (_, latex) => {
+        const idx = mathRendered.length;
+        mathRendered.push(renderLatex(latex.trim(), false));
+        return `%%MATH_${idx}%%`;
+    });
+
+    let html = esc(safeText);
+
+    // --- Re-insert rendered math HTML ---
+    html = html.replace(/%%MATH_(\d+)%%/g, (_, idx) => mathRendered[parseInt(idx)]);
+
     html = html.replace(/\[(\d+)\]/g, (match, num) => {
         const cid = 'c' + (++_citationCounter);
         const src = sources?.find(s => s.reference === `[${num}]`) || sources?.[parseInt(num) - 1];
@@ -1150,6 +1198,10 @@ function formatResponse(text, sources) {
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
     html = html.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
     return html;
+}
+
+function renderMath(container) {
+    // Kept as a no-op fallback; math is now rendered directly in formatResponse via katex.renderToString
 }
 
 function handleCitationClick(e) {
