@@ -6,11 +6,11 @@
     <title>CarnetLM — Local AI Notebook</title>
     <meta name="description" content="Offline-first local AI notebook. Multi-notebook Q&A with notes, rich editing, and AI writing assist.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5EGIE6eoWR5p3JeEVHHiVk7ado3oiS1rowJAhiacJhblhAMse2BR" crossorigin="anonymous">
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mQ8Tqp7C1ZUCEDXi2o4GjLFcKiJGRRCOBIfRDmlKoky1MoN1WQXO" crossorigin="anonymous"></script>
-    <link rel="stylesheet" href="/static/theme.css?v=5.2">
+    <link rel="stylesheet" href="/static/theme.css?v=5.0">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script src="/static/icons.js"></script>
     <script>
@@ -20,73 +20,121 @@
 </head>
 <body>
 
-<!-- Subtle gradient background -->
-<div class="gradient-bg"></div>
+<!-- ═══ Animated Blob Background ═══ -->
+<div class="blob-container" id="blobContainer"></div>
+<div class="noise-overlay"></div>
 
 <!-- Scanline overlay -->
 <div class="scanlines"></div>
 
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Connecting to backend...</div>
+    </div>
+</div>
+
 <div class="app">
-    <!-- Sidebar -->
-    <div class="sidebar">
+    <!-- ═══ Sidebar ═══ -->
+    <!-- ═══ Left Sidebar ═══ -->
+    <div class="sidebar sidebar-left">
         <div class="sidebar-header">
-            <div class="logo"><i data-lucide="book-open" class="logo-icon icon" style="width:16px;height:16px"></i> CarnetLM</div>
+            <div class="logo">
+                <span class="material-symbols-outlined logo-icon" style="font-size:20px;font-variation-settings:'FILL' 1">auto_stories</span>
+                CarnetLM
+            </div>
+            <div class="logo-sub">AI Research Engine</div>
         </div>
-        <div class="sidebar-section">
-            <div class="sidebar-section-title">
-                Notebooks
-                <button class="sidebar-add" style="width:auto;margin:0;padding:2px 6px;border:none;font-size:0.625rem;" onclick="createNotebook()" title="New Notebook">+ NEW</button>
+        <div class="sidebar-content custom-scrollbar">
+            <!-- Sidebar Actions Section -->
+            <div class="sidebar-actions-group" id="sidebarActions" style="display:none;">
+                <div class="sidebar-group-title">Add Sources</div>
+                <div class="sources-grid">
+                    <button class="source-grid-btn" onclick="openModal('upload')">
+                        <span class="material-symbols-outlined">upload_file</span>
+                        <span>File</span>
+                    </button>
+                    <button class="source-grid-btn" onclick="openModal('url')">
+                        <span class="material-symbols-outlined">link</span>
+                        <span>URL</span>
+                    </button>
+                    <button class="source-grid-btn" onclick="openModal('youtube')">
+                        <span class="material-symbols-outlined">smart_display</span>
+                        <span>YouTube</span>
+                    </button>
+                    <button class="source-grid-btn" onclick="openModal('clipboard')">
+                        <span class="material-symbols-outlined">content_paste</span>
+                        <span>Paste</span>
+                    </button>
+                </div>
+
+                <div class="sidebar-group-title" style="margin-top: 1.25rem;">Research Tools</div>
+                <div class="tools-list">
+                    <button class="tool-list-btn" onclick="openModal('search')">
+                        <span class="material-symbols-outlined">search</span>
+                        <span>Semantic Search</span>
+                    </button>
+                    <button class="tool-list-btn" onclick="runSummary()">
+                        <span class="material-symbols-outlined">auto_awesome</span>
+                        <span>Study Guide</span>
+                    </button>
+                    <button class="tool-list-btn" onclick="openModal('compare')">
+                        <span class="material-symbols-outlined">compare_arrows</span>
+                        <span>Compare Sources</span>
+                    </button>
+                    <button class="tool-list-btn" id="discoverBtn" style="display:none" onclick="openDiscoverModal()">
+                        <span class="material-symbols-outlined">language</span>
+                        <span>Web Discover</span>
+                    </button>
+                </div>
             </div>
         </div>
-        <div class="sidebar-list" id="notebookList"></div>
-        <div class="sidebar-section" style="margin-top:0.5rem;">
-            <div class="sidebar-section-title">Sources <span id="sourceCount" style="font-weight:400;color:var(--g30)">0</span></div>
-        </div>
-        <div style="padding:0 0.75rem; overflow-y:auto; max-height:160px;" id="sourceList"></div>
-        <div class="sidebar-actions" id="sidebarActions" style="display:none;">
-            <div class="sidebar-actions-row">
-                <button class="sidebar-add" onclick="openModal('upload')"><i data-lucide="file-up" class="icon" style="width:14px;height:14px"></i> File</button>
-                <button class="sidebar-add" onclick="openModal('url')"><i data-lucide="link" class="icon" style="width:14px;height:14px"></i> URL</button>
-                <button class="sidebar-add" onclick="openModal('youtube')"><i data-lucide="youtube" class="icon" style="width:14px;height:14px"></i> YouTube</button>
-                <button class="sidebar-add" onclick="openModal('clipboard')"><i data-lucide="clipboard-paste" class="icon" style="width:14px;height:14px"></i> Paste</button>
+
+        <div class="sidebar-footer">
+            <div class="settings-btn-wrap">
+                <button class="sidebar-add" style="width:100%" onclick="openSettings()"><span class="material-symbols-outlined" style="font-size:16px">settings</span> Settings</button>
             </div>
-            <div class="sidebar-actions-row">
-                <button class="sidebar-add" onclick="openModal('search')"><i data-lucide="search" class="icon" style="width:14px;height:14px"></i> Search</button>
-                <button class="sidebar-add" id="discoverBtn" style="display:none" onclick="openDiscoverModal()"><i data-lucide="globe" class="icon" style="width:14px;height:14px"></i> Discover</button>
-                <button class="sidebar-add" onclick="runSummary()"><i data-lucide="sparkles" class="icon" style="width:14px;height:14px"></i> Guide</button>
-                <button class="sidebar-add" onclick="openModal('compare')"><i data-lucide="git-compare" class="icon" style="width:14px;height:14px"></i> Compare</button>
+            <div class="model-section">
+                <div class="model-label">AI model</div>
+                <select class="model-select" id="modelSelect" onchange="selectModel(this.value)"><option>Loading...</option></select>
+                <div class="model-status" id="modelStatus"><span class="conn-dot"></span><span id="modelStatusText">Checking...</span></div>
             </div>
-        </div>
-        <div class="settings-btn-wrap">
-            <button class="sidebar-add" style="width:100%" onclick="openSettings()"><i data-lucide="settings" class="icon" style="width:14px;height:14px"></i> Settings</button>
-        </div>
-        <div class="model-section">
-            <div class="model-label">AI model</div>
-            <select class="model-select" id="modelSelect" onchange="selectModel(this.value)"><option>Loading...</option></select>
-            <div class="model-status" id="modelStatus"><span class="conn-dot"></span><span id="modelStatusText">Checking...</span></div>
         </div>
     </div>
 
-    <!-- Main -->
+    <!-- ═══ Main ═══ -->
     <div class="main">
+        <!-- Header Tabs -->
         <div class="main-header">
-            <button class="tab active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
-            <button class="tab" data-tab="notes" onclick="switchTab('notes')">Notes <span class="tab-badge" id="notesBadge">0</span></button>
-            <button class="tab" data-tab="editor" onclick="switchTab('editor')">Editor</button>
+            <button class="tab" onclick="toggleSidebar('left')" title="Toggle Left Sidebar" style="background:none;border:none;margin-right:1rem;padding:0.45rem;display:inline-flex;align-items:center;justify-content:center;">
+                <span class="material-symbols-outlined" id="leftSidebarIcon" style="font-size:18px">menu_open</span>
+            </button>
+            <div class="tab-container">
+                <button class="tab active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
+                <button class="tab" data-tab="notes" onclick="switchTab('notes')">Notes <span class="tab-badge" id="notesBadge">0</span></button>
+                <button class="tab" data-tab="editor" onclick="switchTab('editor')">Editor</button>
+            </div>
             <div style="flex:1"></div>
-            <button class="tab" onclick="toggleTheme()" title="Toggle Light/Dark Mode"><i data-lucide="sun" id="themeIcon" class="icon" style="width:14px;height:14px"></i></button>
+            <button class="tab" onclick="toggleTheme()" title="Toggle Light/Dark Mode" style="background:none;border:none;display:inline-flex;align-items:center;justify-content:center;">
+                <span class="material-symbols-outlined" id="themeIcon" style="font-size:18px">light_mode</span>
+            </button>
+            <button class="tab" onclick="toggleSidebar('right')" title="Toggle Right Sidebar" style="background:none;border:none;margin-left:1rem;padding:0.45rem;display:inline-flex;align-items:center;justify-content:center;">
+                <span class="material-symbols-outlined" id="rightSidebarIcon" style="font-size:18px">dock_to_right</span>
+            </button>
         </div>
+
         <div class="main-content">
             <!-- Chat -->
             <div class="tab-panel active" id="panel-chat">
-                <div class="notes-toolbar" style="padding:0.5rem 1rem;border-bottom:1px solid var(--g15);display:flex;gap:0.5rem;">
-                    <button class="btn btn-sm btn-soft" onclick="exportChat('md')"><i data-lucide="download" class="icon" style="width:12px;height:12px"></i> Export</button>
-                    <button class="btn btn-sm btn-ghost" onclick="clearChatHistory()"><i data-lucide="trash-2" class="icon" style="width:12px;height:12px"></i> Clear</button>
+                <div class="notes-toolbar" style="padding:0.5rem 1.25rem;border-bottom:1px solid var(--border-subtle);display:flex;gap:0.5rem;">
+                    <button class="btn btn-sm btn-soft" onclick="exportChat('md')"><span class="material-symbols-outlined" style="font-size:14px">download</span> Export</button>
+                    <button class="btn btn-sm btn-ghost" onclick="clearChatHistory()"><span class="material-symbols-outlined" style="font-size:14px">delete</span> Clear</button>
                 </div>
                 <div id="onboardingWrap"></div>
                 <div class="chat-messages" id="chatMessages">
                     <div class="chat-empty">
-                        <div class="chat-empty-icon"><i data-lucide="messages-square" style="width:32px;height:32px;opacity:0.2"></i></div>
+                        <div class="chat-empty-icon"><span class="material-symbols-outlined logo-icon" style="font-size:36px;font-variation-settings:'FILL' 1">auto_stories</span></div>
                         <h3>Ask anything about your documents</h3>
                         <p>Upload sources, then query for cited answers from your local model.</p>
                     </div>
@@ -98,8 +146,8 @@
                         <button class="followup-close" onclick="clearFollowup()">&times;</button>
                     </div>
                     <form class="chat-input-wrapper" onsubmit="sendMessage(event)">
-                        <input type="text" class="chat-input" id="chatInput" placeholder="query your documents_" autocomplete="off">
-                        <button type="submit" class="send-btn" id="sendBtn"><i data-lucide="send" style="width:16px;height:16px"></i></button>
+                        <input type="text" class="chat-input" id="chatInput" placeholder="Message CarnetLM..." autocomplete="off">
+                        <button type="submit" class="send-btn" id="sendBtn"><span class="material-symbols-outlined" style="font-size:18px;font-variation-settings:'FILL' 1">send</span></button>
                     </form>
                 </div>
             </div>
@@ -107,15 +155,15 @@
             <!-- Notes -->
             <div class="tab-panel" id="panel-notes">
                 <div id="notesListView">
-                    <div class="notes-toolbar"><button class="btn btn-primary btn-sm" onclick="createNote()"><i data-lucide="plus" class="icon" style="width:12px;height:12px"></i> New note</button></div>
+                    <div class="notes-toolbar"><button class="btn btn-primary btn-sm" onclick="createNote()"><span class="material-symbols-outlined" style="font-size:14px">add</span> New note</button></div>
                     <div class="notes-list" id="notesList"></div>
                 </div>
                 <div class="note-editor" id="noteEditorView">
                     <div class="note-editor-header">
-                        <button class="btn btn-sm btn-soft" onclick="saveAndCloseNote()"><i data-lucide="save" class="icon" style="width:12px;height:12px"></i> Save</button>
+                        <button class="btn btn-sm btn-soft" onclick="saveAndCloseNote()"><span class="material-symbols-outlined" style="font-size:14px">save</span> Save</button>
                         <input type="text" class="note-title-input" id="noteTitleInput" placeholder="Note title...">
-                        <button class="btn btn-sm" id="noteIndexBtn" onclick="toggleNoteIndex()" data-indexed="0"><i data-lucide="database" class="icon" style="width:12px;height:12px"></i> Index</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteCurrentNote()"><i data-lucide="trash-2" class="icon" style="width:12px;height:12px"></i> Delete</button>
+                        <button class="btn btn-sm" id="noteIndexBtn" onclick="toggleNoteIndex()" data-indexed="0"><span class="material-symbols-outlined" style="font-size:14px">database</span> Index</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteCurrentNote()"><span class="material-symbols-outlined" style="font-size:14px">delete</span> Delete</button>
                     </div>
                     <div class="note-content-area"><textarea class="note-textarea" id="noteContentArea" placeholder="Start writing..."></textarea></div>
                 </div>
@@ -125,17 +173,44 @@
             <div class="tab-panel" id="panel-editor">
                 <div class="editor-area">
                     <div class="editor-toolbar-custom">
-                        <button class="btn btn-sm btn-soft" onclick="insertNoteIntoEditor()"><i data-lucide="file-plus" class="icon" style="width:12px;height:12px"></i> Insert note</button>
+                        <button class="btn btn-sm btn-soft" onclick="insertNoteIntoEditor()"><span class="material-symbols-outlined" style="font-size:14px">note_add</span> Insert note</button>
                         <div style="flex:1"></div>
-                        <span style="font-family:var(--font-mono);font-size:0.4375rem;color:var(--g30);letter-spacing:0.08em;" id="wordCount">0 words</span>
-                        <button class="btn btn-sm btn-ghost" onclick="exportDoc('txt')"><i data-lucide="download" class="icon" style="width:12px;height:12px"></i> TXT</button>
-                        <button class="btn btn-sm btn-ghost" onclick="exportDoc('md')"><i data-lucide="download" class="icon" style="width:12px;height:12px"></i> MD</button>
-                        <button class="btn btn-sm btn-ghost" onclick="exportDoc('docx')"><i data-lucide="download" class="icon" style="width:12px;height:12px"></i> DOCX</button>
-                        <button class="btn btn-sm btn-ghost" onclick="window.print()"><i data-lucide="printer" class="icon" style="width:12px;height:12px"></i> PDF</button>
+                        <span style="font-family:var(--font-mono);font-size:0.6875rem;color:var(--outline);letter-spacing:0.05em;" id="wordCount">0 words</span>
+                        <button class="btn btn-sm btn-ghost" onclick="exportDoc('txt')"><span class="material-symbols-outlined" style="font-size:14px">download</span> TXT</button>
+                        <button class="btn btn-sm btn-ghost" onclick="exportDoc('md')"><span class="material-symbols-outlined" style="font-size:14px">download</span> MD</button>
+                        <button class="btn btn-sm btn-ghost" onclick="exportDoc('docx')"><span class="material-symbols-outlined" style="font-size:14px">download</span> DOCX</button>
+                        <button class="btn btn-sm btn-ghost" onclick="window.print()"><span class="material-symbols-outlined" style="font-size:14px">print</span> PDF</button>
                     </div>
                     <div class="editor-container"><div id="quillEditor"></div></div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- ═══ Right Sidebar ═══ -->
+    <div class="sidebar sidebar-right">
+        <div class="sidebar-header">
+            <div class="logo" style="font-size: 1.05rem;">
+                <span class="material-symbols-outlined logo-icon" style="font-size:18px;">folder_open</span>
+                Context & Files
+            </div>
+        </div>
+        
+        <div class="sidebar-content custom-scrollbar">
+            <!-- Notebooks Section -->
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">
+                    Notebooks
+                    <button class="sidebar-add" style="width:auto;margin:0;padding:2px 8px;border:none;font-size:0.6875rem;" onclick="createNotebook()" title="New Notebook">+ NEW</button>
+                </div>
+            </div>
+            <div class="sidebar-list custom-scrollbar" id="notebookList"></div>
+
+            <!-- Sources Section -->
+            <div class="sidebar-section" style="margin-top: 1rem;">
+                <div class="sidebar-section-title">Sources <span id="sourceCount" class="tab-badge" style="margin-left: 0.5rem;">0</span></div>
+            </div>
+            <div id="sourceList" class="sidebar-list custom-scrollbar"></div>
         </div>
     </div>
 </div>
@@ -145,8 +220,8 @@
 
 <!-- Selection popup -->
 <div class="selection-popup" id="selectionPopup">
-    <button class="sel-btn" onclick="doFollowUp()"><i data-lucide="corner-down-right" class="icon" style="width:12px;height:12px"></i> Follow up</button>
-    <button class="sel-btn" onclick="doAddToNote()"><i data-lucide="bookmark-plus" class="icon" style="width:12px;height:12px"></i> Note</button>
+    <button class="sel-btn" onclick="doFollowUp()"><span class="material-symbols-outlined" style="font-size:14px">reply</span> Follow up</button>
+    <button class="sel-btn" onclick="doAddToNote()"><span class="material-symbols-outlined" style="font-size:14px">bookmark_add</span> Note</button>
 </div>
 
 <!-- AI Panel -->
@@ -163,11 +238,11 @@
         </div>
     </div>
     <div class="ai-panel-actions">
-        <button class="ai-btn" onclick="aiAssist('grammar')"><i data-lucide="spell-check" class="icon" style="width:12px;height:12px"></i> Grammar</button>
-        <button class="ai-btn" onclick="aiAssist('rewrite')"><i data-lucide="refresh-cw" class="icon" style="width:12px;height:12px"></i> Rewrite</button>
-        <button class="ai-btn" onclick="aiAssist('define')"><i data-lucide="book" class="icon" style="width:12px;height:12px"></i> Define</button>
-        <button class="ai-btn" onclick="aiAssist('simplify')"><i data-lucide="minimize-2" class="icon" style="width:12px;height:12px"></i> Simplify</button>
-        <button class="ai-btn" onclick="aiAssist('expand')"><i data-lucide="maximize-2" class="icon" style="width:12px;height:12px"></i> Expand</button>
+        <button class="ai-btn" onclick="aiAssist('grammar')"><span class="material-symbols-outlined" style="font-size:14px">spellcheck</span> Grammar</button>
+        <button class="ai-btn" onclick="aiAssist('rewrite')"><span class="material-symbols-outlined" style="font-size:14px">refresh</span> Rewrite</button>
+        <button class="ai-btn" onclick="aiAssist('define')"><span class="material-symbols-outlined" style="font-size:14px">menu_book</span> Define</button>
+        <button class="ai-btn" onclick="aiAssist('simplify')"><span class="material-symbols-outlined" style="font-size:14px">compress</span> Simplify</button>
+        <button class="ai-btn" onclick="aiAssist('expand')"><span class="material-symbols-outlined" style="font-size:14px">expand</span> Expand</button>
     </div>
     <div class="ai-result" id="aiResult" style="display:none"></div>
     <div class="ai-result-actions" id="aiResultActions" style="display:none">
@@ -178,10 +253,10 @@
 
 <div class="note-selector" id="noteSelector"></div>
 
-<!-- Modals -->
+<!-- ═══ Modals ═══ -->
 <div class="modal-overlay" id="modal-upload">
     <div class="modal">
-        <h3><i data-lucide="file-up" class="icon" style="width:16px;height:16px"></i> Upload document <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <h3><span class="material-symbols-outlined" style="font-size:18px">upload_file</span> Upload document <button class="modal-close" onclick="closeModals()">&times;</button></h3>
         <div class="input-group"><label class="input-label">Chunk preset</label>
             <select class="input" id="chunkPresetSelect">
                 <option value="auto">Auto (recommended)</option>
@@ -191,9 +266,9 @@
             </select>
         </div>
         <div class="file-drop" id="fileDrop" onclick="document.getElementById('fileInput').click()">
-            <p style="font-size:1rem;margin-bottom:0.375rem;opacity:0.4"><i data-lucide="upload" style="width:24px;height:24px"></i></p>
+            <p style="font-size:1.5rem;margin-bottom:0.5rem;opacity:0.4"><span class="material-symbols-outlined" style="font-size:28px">cloud_upload</span></p>
             <p>Drag & drop or click to browse</p>
-            <p style="margin-top:0.375rem;font-size:0.4375rem;color:var(--g30);letter-spacing:0.1em">PDF · TXT · MD</p>
+            <p style="margin-top:0.5rem;font-size:0.75rem;color:var(--outline);letter-spacing:0.05em">PDF · TXT · MD</p>
             <input type="file" id="fileInput" multiple accept=".pdf,.txt,.md" onchange="handleFileUpload(this.files)">
         </div>
         <div id="uploadStatus"></div>
@@ -202,7 +277,7 @@
 
 <div class="modal-overlay" id="modal-url">
     <div class="modal">
-        <h3><i data-lucide="link" class="icon" style="width:16px;height:16px"></i> Add website <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <h3><span class="material-symbols-outlined" style="font-size:18px">link</span> Add website <button class="modal-close" onclick="closeModals()">&times;</button></h3>
         <div class="input-group"><label class="input-label">URL</label><input type="url" class="input" id="urlInput" placeholder="https://example.com"></div>
         <button class="btn btn-primary" style="width:100%" onclick="handleURLSubmit()">Add source</button>
         <div id="urlStatus"></div>
@@ -211,7 +286,7 @@
 
 <div class="modal-overlay" id="modal-youtube">
     <div class="modal">
-        <h3><i data-lucide="youtube" class="icon" style="width:16px;height:16px"></i> YouTube video <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <h3><span class="material-symbols-outlined" style="font-size:18px">smart_display</span> YouTube video <button class="modal-close" onclick="closeModals()">&times;</button></h3>
         <div class="input-group"><label class="input-label">YouTube URL</label><input type="url" class="input" id="youtubeInput" placeholder="https://youtube.com/watch?v=..."></div>
         <button class="btn btn-primary" style="width:100%" onclick="handleYouTubeSubmit()">Extract transcript</button>
         <div id="youtubeStatus"></div>
@@ -220,7 +295,7 @@
 
 <div class="modal-overlay" id="modal-clipboard">
     <div class="modal">
-        <h3><i data-lucide="clipboard-paste" class="icon" style="width:16px;height:16px"></i> Paste text <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <h3><span class="material-symbols-outlined" style="font-size:18px">content_paste</span> Paste text <button class="modal-close" onclick="closeModals()">&times;</button></h3>
         <div class="input-group"><label class="input-label">Title</label><input type="text" class="input" id="clipboardTitle" placeholder="Pasted text"></div>
         <div class="input-group"><label class="input-label">Content</label><textarea class="input" id="clipboardText" rows="8" style="resize:vertical"></textarea></div>
         <button class="btn btn-primary" style="width:100%" onclick="handleClipboardSubmit()">Add source</button>
@@ -230,7 +305,7 @@
 
 <div class="modal-overlay" id="modal-search">
     <div class="modal" style="max-width:640px">
-        <h3><i data-lucide="search" class="icon" style="width:16px;height:16px"></i> Semantic search <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <h3><span class="material-symbols-outlined" style="font-size:18px">search</span> Semantic search <button class="modal-close" onclick="closeModals()">&times;</button></h3>
         <div class="input-group"><input type="text" class="input" id="searchInput" placeholder="Search your sources..."></div>
         <button class="btn btn-primary" style="width:100%" onclick="runSearch()">Search</button>
         <div id="searchResults" style="margin-top:1rem;max-height:300px;overflow:auto"></div>
@@ -239,24 +314,24 @@
 
 <div class="modal-overlay" id="modal-compare">
     <div class="modal" style="max-width:720px">
-        <h3><i data-lucide="git-compare" class="icon" style="width:16px;height:16px"></i> Compare sources <button class="modal-close" onclick="closeModals()">&times;</button></h3>
-        <p style="font-size:0.75rem;color:var(--g40);margin-bottom:0.5rem">Select 2+ sources to compare</p>
+        <h3><span class="material-symbols-outlined" style="font-size:18px">compare_arrows</span> Compare sources <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <p style="font-size:0.8125rem;color:var(--secondary);margin-bottom:0.5rem">Select 2+ sources to compare</p>
         <div id="compareSourceList"></div>
         <button class="btn btn-primary" style="width:100%;margin-top:0.5rem" onclick="runCompare()">Compare</button>
-        <div id="compareResult" style="margin-top:1rem;max-height:400px;overflow:auto;white-space:pre-wrap;font-size:0.75rem"></div>
+        <div id="compareResult" style="margin-top:1rem;max-height:400px;overflow:auto;white-space:pre-wrap;font-size:0.8125rem"></div>
     </div>
 </div>
 
 <div class="modal-overlay" id="modal-source">
     <div class="modal" style="max-width:800px;width:90%">
-        <h3 id="sourceViewerTitle"><i data-lucide="file-text" class="icon" style="width:16px;height:16px"></i> Source <button class="modal-close" onclick="closeModals()">&times;</button></h3>
-        <div id="sourceViewerMeta" style="font-size:0.5rem;color:var(--g40);margin-bottom:0.5rem"></div>
+        <h3 id="sourceViewerTitle"><span class="material-symbols-outlined" style="font-size:18px">description</span> Source <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <div id="sourceViewerMeta" style="font-size:0.6875rem;color:var(--secondary);margin-bottom:0.5rem"></div>
         <div id="sourcePdfPages" style="display:none"></div>
         <div id="sourceChunksView" style="display:none;max-height:400px;overflow-y:auto"></div>
-        <textarea class="input" id="sourceEditorText" rows="16" style="width:100%;display:none;font-family:var(--font-mono);font-size:0.75rem"></textarea>
+        <textarea class="input" id="sourceEditorText" rows="16" style="width:100%;display:none;font-family:var(--font-mono);font-size:0.8125rem"></textarea>
         <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
-            <button class="btn btn-primary" id="sourceSaveBtn" onclick="saveSourceContent()"><i data-lucide="save" class="icon" style="width:12px;height:12px"></i> Save & re-index</button>
-            <button class="btn btn-sm btn-ghost" id="sourceRefreshBtn" onclick="refreshCurrentSource()"><i data-lucide="refresh-cw" class="icon" style="width:12px;height:12px"></i> Refresh</button>
+            <button class="btn btn-primary" id="sourceSaveBtn" onclick="saveSourceContent()"><span class="material-symbols-outlined" style="font-size:14px">save</span> Save & re-index</button>
+            <button class="btn btn-sm btn-ghost" id="sourceRefreshBtn" onclick="refreshCurrentSource()"><span class="material-symbols-outlined" style="font-size:14px">refresh</span> Refresh</button>
         </div>
         <div id="sourceViewerStatus"></div>
     </div>
@@ -264,19 +339,18 @@
 
 <div class="modal-overlay" id="modal-newNote">
     <div class="modal">
-        <h3><i data-lucide="sticky-note" class="icon" style="width:16px;height:16px"></i> New note <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <h3><span class="material-symbols-outlined" style="font-size:18px">sticky_note_2</span> New note <button class="modal-close" onclick="closeModals()">&times;</button></h3>
         <div class="input-group"><label class="input-label">Note name</label><input type="text" class="input" id="newNoteNameInput" placeholder="Untitled note"></div>
         <button class="btn btn-primary" style="width:100%" onclick="saveNewNoteFromChat()">Save note</button>
     </div>
 </div>
 
-
 <div class="modal-overlay" id="modal-settings">
     <div class="modal" style="max-width:520px">
-        <h3><i data-lucide="settings" class="icon" style="width:16px;height:16px"></i> Settings <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <h3><span class="material-symbols-outlined" style="font-size:18px">settings</span> Settings <button class="modal-close" onclick="closeModals()">&times;</button></h3>
         <div class="settings-section">
             <h4>Model</h4>
-            <div id="settingsModelInfo" style="font-size:0.75rem;color:var(--g60)">Loading...</div>
+            <div id="settingsModelInfo" style="font-size:0.8125rem;color:var(--secondary)">Loading...</div>
         </div>
         <div class="settings-section">
             <h4>Chunk preset</h4>
@@ -303,10 +377,10 @@
         </div>
         <div class="settings-section">
             <h4>Web discovery</h4>
-            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;margin-bottom:0.5rem">
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;margin-bottom:0.5rem">
                 <input type="checkbox" id="settingsDiscoverEnabled"> Enable Discover in sidebar
             </label>
-            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.75rem;margin-bottom:0.5rem">
+            <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;margin-bottom:0.5rem">
                 <input type="checkbox" id="settingsDiscoverAutoSearch"> Auto-fetch relevant websites during chat
             </label>
             <select class="input" id="settingsDiscoverProvider" style="margin-bottom:0.5rem">
@@ -320,7 +394,7 @@
         </div>
         <div class="settings-section">
             <h4>Text-to-speech</h4>
-            <div id="settingsTtsInfo" style="font-size:0.75rem;color:var(--g60)">Checking...</div>
+            <div id="settingsTtsInfo" style="font-size:0.8125rem;color:var(--secondary)">Checking...</div>
         </div>
         <div class="settings-section">
             <h4>System health</h4>
@@ -331,8 +405,8 @@
 
 <div class="modal-overlay" id="modal-discover">
     <div class="modal" style="max-width:640px">
-        <h3><i data-lucide="globe" class="icon" style="width:16px;height:16px"></i> Discover sources <button class="modal-close" onclick="closeModals()">&times;</button></h3>
-        <p style="font-size:0.7rem;color:var(--g50);margin-bottom:0.75rem">Search the web based on your notebook topic. Select URLs to ingest.</p>
+        <h3><span class="material-symbols-outlined" style="font-size:18px">language</span> Discover sources <button class="modal-close" onclick="closeModals()">&times;</button></h3>
+        <p style="font-size:0.8125rem;color:var(--secondary);margin-bottom:0.75rem">Search the web based on your notebook topic. Select URLs to ingest.</p>
         <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem">
             <input class="input" id="discoverQuery" placeholder="Search query (auto-filled from notebook)" style="flex:1">
             <button class="btn btn-soft btn-sm" onclick="runDiscoverSearch()">Search</button>
@@ -348,6 +422,22 @@
 
 <!-- Toast container -->
 <div id="toastContainer" class="toast-container"></div>
+
+<!-- Mobile Bottom Nav -->
+<nav class="mobile-bottom-nav" id="mobileNav">
+    <a href="#" class="active" onclick="mobileNavSwitch('chat',this);return false;">
+        <span class="material-symbols-outlined" style="font-size:22px;font-variation-settings:'FILL' 1">chat</span>
+        <span class="nav-label">Chat</span>
+    </a>
+    <a href="#" onclick="mobileNavSwitch('notes',this);return false;">
+        <span class="material-symbols-outlined" style="font-size:22px">menu_book</span>
+        <span class="nav-label">Notebooks</span>
+    </a>
+    <a href="#" onclick="mobileNavSwitch('sources',this);return false;">
+        <span class="material-symbols-outlined" style="font-size:22px">database</span>
+        <span class="nav-label">Sources</span>
+    </a>
+</nav>
 
 <!-- Quill -->
 <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
@@ -371,19 +461,65 @@ function showToast(message, type = 'info') {
     setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 3500);
 }
 
+// API retry wrapper with exponential backoff
+async function fetchWithRetry(url, options = {}, maxRetries = 5, baseDelay = 1000) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            const response = await fetch(url, options);
+            if (response.ok) return response;
+            if (attempt === maxRetries - 1) throw new Error(`Failed after ${maxRetries} retries`);
+        } catch (error) {
+            if (attempt === maxRetries - 1) throw error;
+            const delay = baseDelay * Math.pow(2, attempt);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
-    initQuill();
-    await loadPerformanceMode();
-    await loadNotebooks();
-    await loadModels();
-    setupDragDrop();
-    startHealthPolling();
-    document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeModals(); }));
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModals(); dismissAI(); } });
-    document.getElementById('chatMessages').addEventListener('mouseup', handleChatSelection);
-    document.getElementById('chatMessages').addEventListener('click', handleCitationClick);
-    document.addEventListener('mousedown', e => { if (!e.target.closest('.selection-popup')) document.getElementById('selectionPopup').classList.remove('active'); });
-    refreshIcons();
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    
+    try {
+        initQuill();
+        
+        // Progressive loading with retry logic
+        await fetchWithRetry(`${API}/api/settings/performance`)
+            .then(r => r.json())
+            .then(d => {
+                performanceMode = d.mode || 'fast';
+                updatePerfToggleUI();
+            })
+            .catch(() => { performanceMode = 'fast'; });
+        
+        await loadNotebooks();
+        
+        await fetchWithRetry(`${API}/api/models`)
+            .then(r => r.json())
+            .then(data => {
+                populateModelSelect(data);
+            })
+            .catch(() => { populateModelSelect([]); });
+        
+        setupDragDrop();
+        startHealthPolling();
+        document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeModals(); }));
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModals(); dismissAI(); } });
+        document.getElementById('chatMessages').addEventListener('mouseup', handleChatSelection);
+        document.getElementById('chatMessages').addEventListener('click', handleCitationClick);
+        document.addEventListener('mousedown', e => { if (!e.target.closest('.selection-popup')) document.getElementById('selectionPopup').classList.remove('active'); });
+        refreshIcons();
+        
+        // Hide loading overlay after successful initialization
+        if (loadingOverlay) {
+            loadingOverlay.classList.add('hidden');
+            setTimeout(() => loadingOverlay.style.display = 'none', 300);
+        }
+    } catch (error) {
+        console.error('Failed to initialize:', error);
+        if (loadingOverlay) {
+            loadingOverlay.querySelector('.loading-text').textContent = 'Failed to connect. Please refresh.';
+        }
+    }
 });
 
 function initQuill() {
@@ -544,11 +680,11 @@ function renderNotebooks() {
     const el = document.getElementById('notebookList');
     const actions = document.getElementById('sidebarActions');
     if (!notebooks.length) { 
-        el.innerHTML = '<div style="padding:0.5rem;font-size:0.5rem;color:var(--g25, #404040);text-align:center;font-family:var(--font-mono);letter-spacing:0.08em">NO NOTEBOOKS</div>'; 
+        el.innerHTML = '<div style="padding:0.75rem;font-size:0.75rem;color:var(--outline);text-align:center;font-family:var(--font-mono)">No notebooks</div>'; 
         actions.style.display = 'none';
         return; 
     }
-    el.innerHTML = notebooks.map(nb => `<div class="nb-item ${nb.id === activeNotebookId ? 'active' : ''}" onclick="switchNotebook(${nb.id})"><i data-lucide="book" class="icon" style="width:14px;height:14px;opacity:0.5"></i><span class="nb-name">${esc(nb.name)}</span><span class="nb-badge">${nb.chats}</span><button class="nb-delete" onclick="event.stopPropagation();deleteNotebook(${nb.id})" title="Delete"><i data-lucide="x" class="icon" style="width:12px;height:12px"></i></button></div>`).join('');
+    el.innerHTML = notebooks.map(nb => `<div class="nb-item ${nb.id === activeNotebookId ? 'active' : ''}" onclick="switchNotebook(${nb.id})"><span class="material-symbols-outlined" style="font-size:16px;opacity:0.5">book</span><span class="nb-name">${esc(nb.name)}</span><span class="nb-badge">${nb.sources || 0}</span><button class="nb-delete" onclick="event.stopPropagation();deleteNotebook(${nb.id})" title="Delete"><span class="material-symbols-outlined" style="font-size:14px">close</span></button></div>`).join('');
     actions.style.display = activeNotebookId ? 'block' : 'none';
     refreshIcons(el);
 }
@@ -631,22 +767,26 @@ function updateConnectionUI(health) {
     }
 }
 
+function populateModelSelect(data) {
+    const sel = document.getElementById('modelSelect');
+    let opts = '';
+    if (data.ollama_available && data.models?.length) {
+        opts += data.models.map(m => `<option value="${m.name}" ${m.active && data.active_provider === 'ollama' ? 'selected' : ''}>${m.name} · Local</option>`).join('');
+    }
+    if (data.gemini) {
+        opts += `<option value="${data.gemini.name}" ${data.gemini.active ? 'selected' : ''}>${data.gemini.name} · Cloud</option>`;
+    }
+    if (!opts) opts = '<option value="">No models</option>';
+    sel.innerHTML = opts;
+}
+
 async function loadModels() {
     try {
         const [data, health] = await Promise.all([
             fetch(`${API}/api/models`).then(r => r.json()),
             fetch(`${API}/api/health`).then(r => r.json()),
         ]);
-        const sel = document.getElementById('modelSelect');
-        let opts = '';
-        if (data.ollama_available && data.models.length) {
-            opts += data.models.map(m => `<option value="${m.name}" ${m.active && data.active_provider === 'ollama' ? 'selected' : ''}>${m.name} · Local</option>`).join('');
-        }
-        if (data.gemini) {
-            opts += `<option value="${data.gemini.name}" ${data.gemini.active ? 'selected' : ''}>${data.gemini.name} · Cloud</option>`;
-        }
-        if (!opts) opts = '<option value="">No models</option>';
-        sel.innerHTML = opts;
+        populateModelSelect(data);
         updateConnectionUI(health);
     } catch {
         updateConnectionUI(null);
@@ -689,26 +829,60 @@ function pollActiveIngestJobs() {
     ingestPollTimer = setInterval(tick, 1500);
 }
 
+function getSourceCategory(type, name) {
+    const normType = (type || '').toLowerCase();
+    const normName = (name || '').toLowerCase();
+    if (normType === 'youtube' || normName.includes('youtube.com') || normName.includes('youtu.be')) {
+        return 'YouTube';
+    }
+    if (normType === 'website' || normName.startsWith('http://') || normName.startsWith('https://')) {
+        return 'Web URLs';
+    }
+    return 'Files';
+}
+
 function renderSources() {
     document.getElementById('sourceCount').textContent = sources.length;
     const el = document.getElementById('sourceList');
     if (!sources.length && !activeIngestJobs.length) {
-        el.innerHTML = '<div class="src-empty"><i data-lucide="file-plus" style="width:20px;height:20px;opacity:0.25"></i><p>No sources yet</p><span>Drop files here or use the buttons above</span></div>';
+        el.innerHTML = '<div class="src-empty"><span class="material-symbols-outlined" style="font-size:24px;opacity:0.25">note_add</span><p>No sources yet</p><span>Drop files here or use the buttons above</span></div>';
         refreshIcons(el);
         renderOnboarding();
         return;
     }
-    const jobRows = activeIngestJobs.map(j => {
+
+    const categorized = {
+        'Files': [],
+        'Web URLs': [],
+        'YouTube': []
+    };
+
+    activeIngestJobs.forEach(j => {
+        const cat = getSourceCategory('', j.source_name);
         const chunk = j.chunks_total ? ` ${j.chunks_done || 0}/${j.chunks_total}` : '';
-        return `<div class="src-item src-indexing"><div class="src-icon"><span class="src-spinner"></span></div><span class="src-name">${esc(j.source_name)}<span style="color:var(--g40);font-size:0.55rem"> · ${esc(j.message || j.status)}${chunk}</span></span></div>`;
-    }).join('');
-    el.innerHTML = jobRows + sources.map(s => {
+        const html = `<div class="src-item src-indexing"><div class="src-icon"><span class="src-spinner"></span></div><span class="src-name">${esc(j.source_name)}<span style="color:var(--outline);font-size:0.6875rem"> · ${esc(j.message || j.status)}${chunk}</span></span></div>`;
+        categorized[cat].push(html);
+    });
+
+    sources.forEach(s => {
+        const cat = getSourceCategory(s.type, s.name);
         const ic = sourceIcon(s.type);
         const label = esc(s.display_name || s.name);
         const status = s.index_status && s.index_status !== 'ready' ? ` · ${s.index_status}` : '';
         const deleting = s._deleting ? ' disabled' : '';
-        return `<div class="src-item" onclick="openSourceViewer(${s.id})" style="cursor:pointer"><div class="src-icon"><i data-lucide="${ic}" class="icon" style="width:14px;height:14px"></i></div><span class="src-name" title="${label}">${label}${status ? `<span style="color:var(--g40);font-size:0.55rem">${esc(status)}</span>` : ''}</span><button class="src-del" onclick="event.stopPropagation();deleteSource(${s.id})"${deleting} title="Delete source"><i data-lucide="x" class="icon" style="width:12px;height:12px"></i></button></div>`;
-    }).join('');
+        const html = `<div class="src-item" onclick="openSourceViewer(${s.id})" style="cursor:pointer"><div class="src-icon"><span class="material-symbols-outlined" style="font-size:16px">${ic}</span></div><span class="src-name" title="${label}">${label}${status ? `<span style="color:var(--outline);font-size:0.6875rem">${esc(status)}</span>` : ''}</span><button class="src-del" onclick="event.stopPropagation();deleteSource(${s.id})"${deleting} title="Delete source"><span class="material-symbols-outlined" style="font-size:14px">close</span></button></div>`;
+        categorized[cat].push(html);
+    });
+
+    let finalHtml = '';
+    for (const [category, items] of Object.entries(categorized)) {
+        if (items.length > 0) {
+            finalHtml += `<div class="src-category-header">${category}</div>`;
+            finalHtml += items.join('');
+        }
+    }
+
+    el.innerHTML = finalHtml;
     refreshIcons(el);
     renderOnboarding();
 }
@@ -734,7 +908,7 @@ async function loadHistory() { try { const r=await fetch(`${API}/api/history?not
 function renderChat() {
     const el = document.getElementById('chatMessages');
     if (!chatHistory.length) {
-        el.innerHTML='<div class="chat-empty"><div class="chat-empty-icon"><i data-lucide="messages-square" style="width:32px;height:32px;opacity:0.2"></i></div><h3>Ask anything about your documents</h3><p>Upload sources, then query for cited answers from your local model.</p></div>';
+        el.innerHTML='<div class="chat-empty"><div class="chat-empty-icon"><span class="material-symbols-outlined logo-icon" style="font-size:36px;font-variation-settings:\'FILL\' 1">auto_stories</span></div><h3>Ask anything about your documents</h3><p>Upload sources, then query for cited answers from your local model.</p></div>';
         refreshIcons(el);
         renderOnboarding();
         return;
@@ -746,7 +920,7 @@ function renderChat() {
         let html = formatResponse(msg.content, msg.sources);
         let srcTags = '';
         if (msg.sources?.length) { const uniq=[...new Map(msg.sources.map(s=>[s.source_file,s])).values()]; srcTags=`<div class="msg-sources">${uniq.map(s=>`<span class="msg-source-tag">${esc(s.source_file)}</span>`).join('')}</div>`; }
-        return `<div class="msg msg-assistant"><div class="msg-bubble">${html}${srcTags}</div><div class="msg-actions"><button class="msg-action-btn" onclick="speakText(this,${i})" title="Read aloud"><i data-lucide="volume-2" class="icon" style="width:12px;height:12px"></i> Speak</button><button class="msg-action-btn" onclick="showNoteSelector(event,${i})" title="Save to note"><i data-lucide="bookmark-plus" class="icon" style="width:12px;height:12px"></i> Note</button></div></div>`;
+        return `<div class="msg msg-assistant"><div class="msg-bubble">${html}${srcTags}</div><div class="msg-actions"><button class="msg-action-btn" onclick="speakText(this,${i})" title="Read aloud"><span class="material-symbols-outlined" style="font-size:14px">volume_up</span> Speak</button><button class="msg-action-btn" onclick="showNoteSelector(event,${i})" title="Save to note"><span class="material-symbols-outlined" style="font-size:14px">bookmark_add</span> Note</button></div></div>`;
     }).join('');
     refreshIcons(el);
     renderMath(el);
@@ -816,8 +990,8 @@ async function sendMessage(e) {
 }
 
 async function speakText(btn, i) {
-    const speakHtml = '<i data-lucide="volume-2" class="icon" style="width:12px;height:12px"></i> Speak';
-    const stopHtml = '<i data-lucide="pause" class="icon" style="width:12px;height:12px"></i> Stop';
+    const speakHtml = '<span class="material-symbols-outlined" style="font-size:14px">volume_up</span> Speak';
+    const stopHtml = '<span class="material-symbols-outlined" style="font-size:14px">pause</span> Stop';
     if (currentAudio) { currentAudio.pause(); currentAudio = null; btn.classList.remove('speaking'); btn.innerHTML = speakHtml; refreshIcons(btn); return; }
     if (currentSpeech) { speechSynthesis.cancel(); currentSpeech = null; btn.classList.remove('speaking'); btn.innerHTML = speakHtml; refreshIcons(btn); return; }
     const t = chatHistory[i]?.content; if (!t) return;
@@ -844,7 +1018,7 @@ async function speakText(btn, i) {
 async function loadNotes() { if(!activeNotebookId)return; try{const r=await fetch(`${API}/api/notebooks/${activeNotebookId}/notes`);const d=await r.json();notes=d.notes||[];document.getElementById('notesBadge').textContent=notes.length;renderNotes();}catch(e){console.error(e);} }
 function renderNotes() {
     const el=document.getElementById('notesList');
-    if(!notes.length){el.innerHTML='<div style="text-align:center;padding:3rem;color:var(--g30);font-size:0.5rem;font-family:var(--font-mono);letter-spacing:0.1em">NO NOTES YET</div>';return;}
+    if(!notes.length){el.innerHTML='<div style="text-align:center;padding:3rem;color:var(--outline);font-size:0.8125rem;font-family:var(--font-body)">No notes yet</div>';return;}
     el.innerHTML=notes.map(n=>`<div class="note-card" onclick="openNote(${n.id})"><div class="note-card-title">${esc(n.title)}</div><div class="note-card-preview">${esc(n.preview||'')}</div><div class="note-card-meta">${new Date(n.updated_at).toLocaleDateString()}</div></div>`).join('');
 }
 async function createNote() { const id=await fetch(`${API}/api/notebooks/${activeNotebookId}/notes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Untitled Note',content:''})}).then(r=>r.json()).then(d=>d.id); await loadNotes(); openNote(id); }
@@ -854,8 +1028,8 @@ function updateNoteIndexBtn(indexed) {
     if (!btn) return;
     btn.dataset.indexed = indexed ? '1' : '0';
     btn.innerHTML = indexed
-        ? '<i data-lucide="database" class="icon" style="width:12px;height:12px"></i> Indexed'
-        : '<i data-lucide="database" class="icon" style="width:12px;height:12px"></i> Index';
+        ? '<span class="material-symbols-outlined" style="font-size:14px">database</span> Indexed'
+        : '<span class="material-symbols-outlined" style="font-size:14px">database</span> Index';
     refreshIcons(btn);
 }
 async function toggleNoteIndex() {
@@ -900,11 +1074,11 @@ async function aiAssist(action) {
     const range=quill.getSelection(); if(!range||range.length===0)return;
     const text=quill.getText(range.index,range.length);
     const resultEl=document.getElementById('aiResult'); const actionsEl=document.getElementById('aiResultActions');
-    resultEl.style.display='block'; resultEl.innerHTML='<span style="color:var(--g50);font-family:var(--font-mono);font-size:0.5625rem;letter-spacing:0.08em">PROCESSING...</span>'; actionsEl.style.display='none';
+    resultEl.style.display='block'; resultEl.innerHTML='<span style="color:var(--outline);font-family:var(--font-mono);font-size:0.6875rem;letter-spacing:0.05em">Processing...</span>'; actionsEl.style.display='none';
     try { const r=await fetch(`${API}/api/ai/assist`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,action})}); const d=await r.json();
         resultEl.textContent=d.result; actionsEl.style.display='flex'; window._aiRange=range; window._aiResult=d.result;
         document.getElementById('aiAcceptBtn').style.display = action === 'define' ? 'none' : '';
-    } catch(e) { resultEl.innerHTML=`<span style="color:var(--g40);font-family:var(--font-mono)">ERR: ${e.message}</span>`; }
+    } catch(e) { resultEl.innerHTML=`<span style="color:var(--outline);font-family:var(--font-mono)">ERR: ${e.message}</span>`; }
 }
 function acceptAI() { if(window._aiRange&&window._aiResult){quill.deleteText(window._aiRange.index,window._aiRange.length);quill.insertText(window._aiRange.index,window._aiResult);} dismissAI(); }
 function dismissAI() { document.getElementById('aiPanel').classList.remove('active'); document.getElementById('aiResult').style.display='none'; document.getElementById('aiResultActions').style.display='none'; document.getElementById('grammarStatus').className='ai-grammar-status'; }
@@ -914,7 +1088,7 @@ async function exportDoc(fmt) { const h=quill.root.innerHTML;const t=quill.getTe
 async function handleFileUpload(files) {
     if (!files.length) return;
     const st = document.getElementById('uploadStatus');
-    st.innerHTML = '<div class="status-msg status-loading">UPLOADING...</div>';
+    st.innerHTML = '<div class="status-msg status-loading">Uploading...</div>';
     const fd = new FormData();
     for (const f of files) fd.append('files', f);
     fd.append('notebook_id', activeNotebookId);
@@ -944,7 +1118,7 @@ async function pollIngestJobs(jobIds, stEl) {
             stEl.innerHTML = `<div class="status-msg status-error">✕ ${esc(errMsg)}</div>`;
             showToast(errMsg, 'error');
         } else {
-            stEl.innerHTML = '<div class="status-msg status-success">✓ FILES PROCESSED</div>';
+            stEl.innerHTML = '<div class="status-msg status-success">✓ Files processed</div>';
             showToast('Sources indexed', 'info');
         }
         await loadSources();
@@ -970,14 +1144,14 @@ async function runSearch() {
     const q = document.getElementById('searchInput').value.trim();
     if (!q) return;
     const el = document.getElementById('searchResults');
-    el.innerHTML = '<div class="status-msg status-loading">SEARCHING...</div>';
+    el.innerHTML = '<div class="status-msg status-loading">Searching...</div>';
     const r = await fetch(`${API}/api/search`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, notebook_id: activeNotebookId }) });
     const d = await r.json();
-    el.innerHTML = (d.results || []).map(res => `<div style="border:1px solid var(--g15);padding:0.5rem;margin-bottom:0.5rem;font-size:0.7rem"><strong>${esc(res.source_file)}</strong> <span style="color:var(--g40)">score ${res.score?.toFixed(3)}</span><br>${esc(res.content)}</div>`).join('') || '<div>No results</div>';
+    el.innerHTML = (d.results || []).map(res => `<div style="border:1px solid var(--border-subtle);padding:0.625rem;margin-bottom:0.5rem;font-size:0.8125rem;border-radius:var(--radius)"><strong>${esc(res.source_file)}</strong> <span style="color:var(--outline)">score ${res.score?.toFixed(3)}</span><br>${esc(res.content)}</div>`).join('') || '<div>No results</div>';
 }
 function openCompareModal() {
     const el = document.getElementById('compareSourceList');
-    el.innerHTML = sources.map(s => `<label style="display:block;font-size:0.7rem;margin:0.25rem 0"><input type="checkbox" class="compare-chk" value="${s.name.replace(/"/g, '&quot;')}"> ${esc(s.display_name || s.name)}</label>`).join('');
+    el.innerHTML = sources.map(s => `<label style="display:block;font-size:0.8125rem;margin:0.25rem 0"><input type="checkbox" class="compare-chk" value="${s.name.replace(/"/g, '&quot;')}"> ${esc(s.display_name || s.name)}</label>`).join('');
     return true;
 }
 async function runCompare() {
@@ -1021,7 +1195,7 @@ async function openSourceViewer(id, highlightText) {
     const d = await r.json();
     currentSourceData = d;
     const titleEl = document.getElementById('sourceViewerTitle');
-    titleEl.innerHTML = `<i data-lucide="file-text" class="icon" style="width:16px;height:16px"></i> ${esc(d.source?.name || 'Source')} <button class="modal-close" onclick="closeModals()">&times;</button>`;
+    titleEl.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px">description</span> ${esc(d.source?.name || 'Source')} <button class="modal-close" onclick="closeModals()">&times;</button>`;
     document.getElementById('sourceViewerMeta').textContent = `${d.total_chunks} chunks · ${d.source?.type || ''}`;
     const textEl = document.getElementById('sourceEditorText');
     const pdfEl = document.getElementById('sourcePdfPages');
@@ -1038,7 +1212,7 @@ async function openSourceViewer(id, highlightText) {
         chunksEl.style.display = 'block';
         chunksEl.innerHTML = (d.chunks || []).map((c, i) => {
             const match = highlightText && c.content && (c.content.includes(highlightText.slice(0, 80)) || highlightText.includes(c.content.slice(0, 80)));
-            return `<div class="source-chunk ${match ? 'chunk-highlight' : ''}" data-chunk="${i}" style="margin-bottom:0.75rem;padding:0.5rem;font-size:0.75rem;line-height:1.6;border-bottom:1px solid var(--g15)">${esc(c.content)}</div>`;
+            return `<div class="source-chunk ${match ? 'chunk-highlight' : ''}" data-chunk="${i}" style="margin-bottom:0.75rem;padding:0.625rem;font-size:0.8125rem;line-height:1.6;border-bottom:1px solid var(--border-subtle)">${esc(c.content)}</div>`;
         }).join('');
         textEl.style.display = 'none';
         openModal('source');
@@ -1054,13 +1228,13 @@ async function openSourceViewer(id, highlightText) {
             const wrap = document.createElement('div');
             wrap.style.marginBottom = '0.75rem';
             const lbl = document.createElement('label');
-            lbl.style.cssText = 'font-size:0.5rem;color:var(--g40)';
+            lbl.style.cssText = 'font-size:0.6875rem;color:var(--outline)';
             lbl.textContent = `Page ${p}`;
             const ta = document.createElement('textarea');
             ta.className = 'input pdf-page-edit';
             ta.dataset.page = p;
             ta.rows = 6;
-            ta.style.cssText = 'width:100%;font-size:0.7rem';
+            ta.style.cssText = 'width:100%;font-size:0.8125rem';
             ta.value = t;
             wrap.appendChild(lbl);
             wrap.appendChild(ta);
@@ -1080,7 +1254,7 @@ async function openSourceViewer(id, highlightText) {
 async function saveSourceContent() {
     if (!currentSourceId) return;
     const st = document.getElementById('sourceViewerStatus');
-    st.innerHTML = '<div class="status-msg status-loading">RE-INDEXING...</div>';
+    st.innerHTML = '<div class="status-msg status-loading">Re-indexing...</div>';
     let body = {};
     const pdfPages = document.querySelectorAll('.pdf-page-edit');
     if (pdfPages.length) {
@@ -1228,14 +1402,14 @@ function renderOnboarding() {
     if (localStorage.getItem(ONBOARDING_KEY) || !activeNotebookId) { wrap.innerHTML = ''; return; }
     if (sources.length > 0 || chatHistory.length > 0) { wrap.innerHTML = ''; return; }
     wrap.innerHTML = `<div class="onboarding-card">
-        <button class="btn btn-ghost btn-sm onboarding-dismiss" onclick="dismissOnboarding()"><i data-lucide="x" class="icon" style="width:14px;height:14px"></i></button>
+        <button class="btn btn-ghost btn-sm onboarding-dismiss" onclick="dismissOnboarding()"><span class="material-symbols-outlined" style="font-size:16px">close</span></button>
         <h4>Welcome to CarnetLM</h4>
         <div class="onboarding-steps">
             <div class="onboarding-step"><span class="onboarding-step-num">1</span> Add a source — file, URL, YouTube, or paste text</div>
             <div class="onboarding-step"><span class="onboarding-step-num">2</span> Ask a question in Chat for cited answers</div>
             <div class="onboarding-step"><span class="onboarding-step-num">3</span> Try the Editor for rich documents with AI assist</div>
         </div>
-        <button class="btn btn-soft btn-sm" onclick="openModal('upload')"><i data-lucide="file-up" class="icon" style="width:14px;height:14px"></i> Add your first source</button>
+        <button class="btn btn-soft btn-sm" onclick="openModal('upload')"><span class="material-symbols-outlined" style="font-size:16px">upload_file</span> Add your first source</button>
     </div>`;
     refreshIcons(wrap);
 }
@@ -1250,7 +1424,7 @@ async function openSettings() {
     openModal('settings');
     refreshIcons();
     try {
-        const [models, chunking, discover, health, tts] = await Promise.all([
+        const [models, chunking, discover, health, tts, perf] = await Promise.all([
             fetch(`${API}/api/models`).then(r => r.json()),
             fetch(`${API}/api/settings/chunking?notebook_id=${activeNotebookId || 1}`).then(r => r.json()),
             fetch(`${API}/api/settings/discover?notebook_id=${activeNotebookId || 1}`).then(r => r.json()),
@@ -1328,7 +1502,7 @@ async function savePerformanceMode() {
             body: JSON.stringify({ mode }),
         });
         performanceMode = mode;
-        updatePerfUI();
+        updatePerfToggleUI();
         showToast('Performance mode saved', 'info');
     } catch (e) {
         showToast('Failed to save setting', 'error');
@@ -1370,11 +1544,11 @@ async function runDiscoverSearch() {
         if (d.query) document.getElementById('discoverQuery').value = d.query;
         st.innerHTML = `<div class="status-msg status-success">${discoverCandidates.length} results for "${esc(d.query || q)}"</div>`;
         document.getElementById('discoverResults').innerHTML = discoverCandidates.map((c, i) =>
-            `<label style="display:block;border:1px solid var(--g15);padding:0.5rem;margin-bottom:0.5rem;font-size:0.7rem;cursor:pointer">
+            `<label style="display:block;border:1px solid var(--border-subtle);padding:0.625rem;margin-bottom:0.5rem;font-size:0.8125rem;cursor:pointer;border-radius:var(--radius)">
                 <input type="checkbox" class="discover-chk" value="${esc(c.url)}" checked>
                 <strong>${esc(c.title || c.url)}</strong>
-                <div style="color:var(--g40);font-size:0.6rem">${esc(c.domain || '')}</div>
-                <div style="margin-top:0.25rem;color:var(--g60)">${esc((c.snippet || '').slice(0, 180))}</div>
+                <div style="color:var(--outline);font-size:0.75rem">${esc(c.domain || '')}</div>
+                <div style="margin-top:0.25rem;color:var(--secondary)">${esc((c.snippet || '').slice(0, 180))}</div>
             </label>`
         ).join('') || '<div>No results — try a different query</div>';
     } catch (e) {
@@ -1444,21 +1618,117 @@ function toggleTheme() {
     localStorage.setItem('theme', current);
     const icon = document.getElementById('themeIcon');
     if (icon) {
-        icon.setAttribute('data-lucide', current === 'light' ? 'moon' : 'sun');
-        if (window.lucide) window.lucide.createIcons();
+        icon.textContent = current === 'light' ? 'dark_mode' : 'light_mode';
     }
 }
 document.addEventListener('DOMContentLoaded', () => {
     const current = document.documentElement.getAttribute('data-theme') || 'dark';
     const icon = document.getElementById('themeIcon');
     if (icon) {
-        icon.setAttribute('data-lucide', current === 'light' ? 'moon' : 'sun');
-        if (window.lucide) window.lucide.createIcons();
+        icon.textContent = current === 'light' ? 'dark_mode' : 'light_mode';
     }
 });
+
+// Mobile nav helper
+function mobileNavSwitch(target, el) {
+    document.querySelectorAll('.mobile-bottom-nav a').forEach(a => a.classList.remove('active'));
+    el.classList.add('active');
+    if (target === 'sources') {
+        openModal('upload');
+    } else {
+        switchTab(target);
+    }
+}
+
+function toggleSidebar(side) {
+    const sidebar = document.querySelector(`.sidebar-${side}`);
+    if (!sidebar) return;
+    sidebar.classList.toggle('collapsed');
+    const icon = document.getElementById(`${side}SidebarIcon`);
+    if (icon) {
+        if (side === 'left') {
+            icon.textContent = sidebar.classList.contains('collapsed') ? 'menu' : 'menu_open';
+        } else {
+            icon.textContent = sidebar.classList.contains('collapsed') ? 'vertical_split' : 'dock_to_right';
+        }
+    }
+}
 </script>
-</body>
-</html>n setupDragDrop() { const d=document.getElementById('fileDrop'); if(!d)return; d.addEventListener('dragover',e=>{e.preventDefault();d.classList.add('dragover');}); d.addEventListener('dragleave',()=>d.classList.remove('dragover')); d.addEventListener('drop',e=>{e.preventDefault();d.classList.remove('dragover');if(e.dataTransfer.files.length)handleFileUpload(e.dataTransfer.files);}); }
+
+<!-- ═══ Animated Blob Background Script ═══ -->
+<script>
+(function() {
+    const container = document.getElementById('blobContainer');
+    if (!container) return;
+
+    const BLOBS_COUNT = 4;
+    const state = {
+        mouse: { x: 0, y: 0, targetX: 0, targetY: 0 },
+        blobs: [],
+        width: window.innerWidth,
+        height: window.innerHeight
+    };
+
+    const colors = ['#d97706', '#a38c7c', '#554336', '#ffb77d'];
+
+    for (let i = 0; i < BLOBS_COUNT; i++) {
+        const el = document.createElement('div');
+        el.className = 'blob';
+        const size = 300 + Math.random() * 400;
+        el.style.width = size + 'px';
+        el.style.height = size + 'px';
+        el.style.background = colors[i % colors.length];
+        el.style.opacity = '0.15';
+
+        const blob = {
+            el,
+            x: Math.random() * state.width,
+            y: Math.random() * state.height,
+            vx: (Math.random() - 0.5) * 1.5,
+            vy: (Math.random() - 0.5) * 1.5,
+            size,
+            factor: 0.01 + Math.random() * 0.02
+        };
+
+        state.blobs.push(blob);
+        container.appendChild(el);
+    }
+
+    function update() {
+        state.mouse.x += (state.mouse.targetX - state.mouse.x) * 0.05;
+        state.mouse.y += (state.mouse.targetY - state.mouse.y) * 0.05;
+
+        state.blobs.forEach((blob, i) => {
+            blob.x += blob.vx;
+            blob.y += blob.vy;
+
+            if (blob.x < -blob.size) blob.vx *= -1;
+            if (blob.x > state.width) blob.vx *= -1;
+            if (blob.y < -blob.size) blob.vy *= -1;
+            if (blob.y > state.height) blob.vy *= -1;
+
+            const dx = (state.mouse.x - state.width / 2) * blob.factor * (i + 1);
+            const dy = (state.mouse.y - state.height / 2) * blob.factor * (i + 1);
+
+            blob.el.style.transform = `translate(${blob.x + dx}px, ${blob.y + dy}px)`;
+        });
+
+        requestAnimationFrame(update);
+    }
+
+    window.addEventListener('mousemove', (e) => {
+        state.mouse.targetX = e.clientX;
+        state.mouse.targetY = e.clientY;
+    });
+
+    window.addEventListener('resize', () => {
+        state.width = window.innerWidth;
+        state.height = window.innerHeight;
+    });
+
+    update();
+})();
 </script>
+
 </body>
 </html>

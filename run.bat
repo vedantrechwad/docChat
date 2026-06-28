@@ -29,12 +29,39 @@ echo Starting DocChat on http://localhost:8000
 echo Press Ctrl+C to stop.
 echo.
 
-:: Start the server in background and open browser
-start "" http://localhost:8000
-timeout /t 2 /nobreak >nul
+:: Start the server in background
+start /b uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
-:: Start the server (stays open so you can see output)
-uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000
+:: Wait for backend to be ready (health check)
+echo Waiting for backend to initialize...
+set MAX_WAIT=60
+set WAIT_COUNT=0
+:wait_loop
+timeout /t 2 /nobreak >nul
+set /a WAIT_COUNT+=2
+
+:: Check if server is responding
+curl -s http://localhost:8000/api/health >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    echo Backend ready! Opening browser...
+    start "" http://localhost:8000
+    goto server_running
+)
+
+if %WAIT_COUNT% geq %MAX_WAIT% (
+    echo [WARNING] Backend did not respond within %MAX_WAIT% seconds
+    echo Opening browser anyway...
+    start "" http://localhost:8000
+    goto server_running
+)
+
+echo Backend initializing... (%WAIT_COUNT%s/%MAX_WAIT%s)
+goto wait_loop
+
+:server_running
+echo.
+echo [DocChat is running]
+echo.
 
 :: If server exits, show the error and wait
 echo.

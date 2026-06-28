@@ -661,7 +661,7 @@ async def add_urls(request: URLRequest):
         raise HTTPException(status_code=503, detail="Not initialized")
 
     from src.ingest.ingest_jobs import JobStatus
-    from src.ingest.pipeline import ingest_chunks, make_progress_callback
+    from src.ingest.pipeline import ingest_chunks, make_progress_callback, check_existing_checksum
 
     _apply_notebook_chunking(request.notebook_id)
     job_ids = []
@@ -753,7 +753,7 @@ async def add_youtube(request: YouTubeRequest):
         raise HTTPException(status_code=503, detail="Not initialized")
 
     from src.ingest.ingest_jobs import JobStatus
-    from src.ingest.pipeline import ingest_chunks, make_progress_callback
+    from src.ingest.pipeline import ingest_chunks, make_progress_callback, check_existing_checksum
 
     _apply_notebook_chunking(request.notebook_id)
     job = _ingest_jobs.create_job(request.notebook_id, request.url)
@@ -1266,7 +1266,7 @@ async def add_clipboard_source(request: ClipboardRequest):
         raise HTTPException(status_code=400, detail="Empty text")
 
     from src.ingest.ingest_jobs import JobStatus
-    from src.ingest.pipeline import ingest_chunks, make_progress_callback
+    from src.ingest.pipeline import ingest_chunks, make_progress_callback, check_existing_checksum
 
     _apply_notebook_chunking(request.notebook_id)
     job = _ingest_jobs.create_job(request.notebook_id, request.title)
