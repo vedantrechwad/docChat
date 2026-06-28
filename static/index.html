@@ -24,6 +24,14 @@
 <!-- Scanline overlay -->
 <div class="scanlines"></div>
 
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Connecting to backend...</div>
+    </div>
+</div>
+
 <div class="app">
     <!-- Sidebar -->
     <div class="sidebar">
@@ -369,19 +377,71 @@ function showToast(message, type = 'info') {
     setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 3500);
 }
 
+// API retry wrapper with exponential backoff
+async function fetchWithRetry(url, options = {}, maxRetries = 5, baseDelay = 1000) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            const response = await fetch(url, options);
+            if (response.ok) return response;
+            if (attempt === maxRetries - 1) throw new Error(`Failed after ${maxRetries} retries`);
+        } catch (error) {
+            if (attempt === maxRetries - 1) throw error;
+            const delay = baseDelay * Math.pow(2, attempt);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
-    initQuill();
-    await loadPerformanceMode();
-    await loadNotebooks();
-    await loadModels();
-    setupDragDrop();
-    startHealthPolling();
-    document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeModals(); }));
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModals(); dismissAI(); } });
-    document.getElementById('chatMessages').addEventListener('mouseup', handleChatSelection);
-    document.getElementById('chatMessages').addEventListener('click', handleCitationClick);
-    document.addEventListener('mousedown', e => { if (!e.target.closest('.selection-popup')) document.getElementById('selectionPopup').classList.remove('active'); });
-    refreshIcons();
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    
+    try {
+        initQuill();
+        
+        // Progressive loading with retry logic
+        await fetchWithRetry(`${API}/api/settings/performance`)
+            .then(r => r.json())
+            .then(d => {
+                performanceMode = d.mode || 'fast';
+                updatePerfToggleUI();
+            })
+            .catch(() => { performanceMode = 'fast'; });
+        
+        await fetchWithRetry(`${API}/api/notebooks`)
+            .then(r => r.json())
+            .then(data => {
+                notebooks = data;
+                renderNotebooks();
+            })
+            .catch(() => { notebooks = []; renderNotebooks(); });
+        
+        await fetchWithRetry(`${API}/api/models`)
+            .then(r => r.json())
+            .then(data => {
+                populateModelSelect(data);
+            })
+            .catch(() => { populateModelSelect([]); });
+        
+        setupDragDrop();
+        startHealthPolling();
+        document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeModals(); }));
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModals(); dismissAI(); } });
+        document.getElementById('chatMessages').addEventListener('mouseup', handleChatSelection);
+        document.getElementById('chatMessages').addEventListener('click', handleCitationClick);
+        document.addEventListener('mousedown', e => { if (!e.target.closest('.selection-popup')) document.getElementById('selectionPopup').classList.remove('active'); });
+        refreshIcons();
+        
+        // Hide loading overlay after successful initialization
+        if (loadingOverlay) {
+            loadingOverlay.classList.add('hidden');
+            setTimeout(() => loadingOverlay.style.display = 'none', 300);
+        }
+    } catch (error) {
+        console.error('Failed to initialize:', error);
+        if (loadingOverlay) {
+            loadingOverlay.querySelector('.loading-text').textContent = 'Failed to connect. Please refresh.';
+        }
+    }
 });
 
 function initQuill() {
