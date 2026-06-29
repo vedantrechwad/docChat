@@ -91,6 +91,68 @@ wheels = [
 ]
 
 [[package]]
+name = "carnetlm"
+version = "2.0.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "bm25s" },
+    { name = "duckduckgo-search" },
+    { name = "easyocr" },
+    { name = "fastapi" },
+    { name = "fastembed", version = "0.7.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "fastembed", version = "0.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "google-genai" },
+    { name = "htmldocx" },
+    { name = "httpx" },
+    { name = "markdownify" },
+    { name = "milvus-lite" },
+    { name = "numpy" },
+    { name = "pydantic" },
+    { name = "pymilvus" },
+    { name = "pymupdf" },
+    { name = "python-docx" },
+    { name = "python-dotenv" },
+    { name = "python-multipart" },
+    { name = "trafilatura" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "yt-dlp" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beautifulsoup4", specifier = ">=4.12.0" },
+    { name = "bm25s", specifier = ">=0.2.0" },
+    { name = "duckduckgo-search", specifier = ">=7.0.0" },
+    { name = "easyocr", specifier = ">=1.7.1" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "fastembed", specifier = ">=0.7.3" },
+    { name = "google-genai", specifier = ">=0.1.0" },
+    { name = "htmldocx", specifier = ">=0.0.6" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "markdownify", specifier = ">=0.13.0" },
+    { name = "milvus-lite", specifier = ">=3.0" },
+    { name = "numpy", specifier = ">=1.26.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pymilvus", specifier = ">=2.6.2" },
+    { name = "pymupdf", specifier = ">=1.26.4" },
+    { name = "python-docx", specifier = ">=1.0.0" },
+    { name = "python-dotenv", specifier = ">=1.1.1" },
+    { name = "python-multipart", specifier = ">=0.0.12" },
+    { name = "trafilatura", specifier = ">=2.0.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
+    { name = "yt-dlp", specifier = ">=2024.12.13" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = ">=0.15.17" }]
+
+[[package]]
 name = "certifi"
 version = "2026.5.20"
 source = { registry = "https://pypi.org/simple" }
@@ -452,68 +514,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
 ]
-
-[[package]]
-name = "docchat"
-version = "2.0.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "beautifulsoup4" },
-    { name = "bm25s" },
-    { name = "duckduckgo-search" },
-    { name = "easyocr" },
-    { name = "fastapi" },
-    { name = "fastembed", version = "0.7.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
-    { name = "fastembed", version = "0.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
-    { name = "google-genai" },
-    { name = "htmldocx" },
-    { name = "httpx" },
-    { name = "markdownify" },
-    { name = "milvus-lite" },
-    { name = "numpy" },
-    { name = "pydantic" },
-    { name = "pymilvus" },
-    { name = "pymupdf" },
-    { name = "python-docx" },
-    { name = "python-dotenv" },
-    { name = "python-multipart" },
-    { name = "trafilatura" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "yt-dlp" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "beautifulsoup4", specifier = ">=4.12.0" },
-    { name = "bm25s", specifier = ">=0.2.0" },
-    { name = "duckduckgo-search", specifier = ">=7.0.0" },
-    { name = "easyocr", specifier = ">=1.7.1" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "fastembed", specifier = ">=0.7.3" },
-    { name = "google-genai", specifier = ">=0.1.0" },
-    { name = "htmldocx", specifier = ">=0.0.6" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "markdownify", specifier = ">=0.13.0" },
-    { name = "milvus-lite", specifier = ">=3.0" },
-    { name = "numpy", specifier = ">=1.26.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pymilvus", specifier = ">=2.6.2" },
-    { name = "pymupdf", specifier = ">=1.26.4" },
-    { name = "python-docx", specifier = ">=1.0.0" },
-    { name = "python-dotenv", specifier = ">=1.1.1" },
-    { name = "python-multipart", specifier = ">=0.0.12" },
-    { name = "trafilatura", specifier = ">=2.0.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
-    { name = "yt-dlp", specifier = ">=2024.12.13" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.15.17" }]
 
 [[package]]
 name = "duckduckgo-search"

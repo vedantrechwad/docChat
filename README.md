@@ -1,8 +1,8 @@
-# DocChat
+# CarnetLM
 
 **Upload documents. Ask questions. Get cited answers.**
 
-DocChat is a local-first AI-powered document Q&A tool. Upload PDFs, scrape websites, or extract YouTube transcripts — then ask natural language questions and get responses grounded in your sources with proper citations.
+CarnetLM is a local-first AI-powered document Q&A tool. Upload PDFs, scrape websites, or extract YouTube transcripts — then ask natural language questions and get responses grounded in your sources with proper citations.
 
 ## Features
 
@@ -28,7 +28,7 @@ DocChat is a local-first AI-powered document Q&A tool. Upload PDFs, scrape websi
 ```bash
 # 1. Clone and enter the project
 git clone <your-repo-url>
-cd docchat
+cd CarnetLM
 
 # 2. Create your .env file
 cp .env.example .env

@@ -1,7 +1,7 @@
 [project]
-name = "docchat"
+name = "carnetlm"
 version = "2.0.0"
-description = "DocChat — Multi-notebook document Q&A with AI writing assist."
+description = "CarnetLM — Multi-notebook document Q&A with AI writing assist."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -37,9 +37,6 @@ dependencies = [
     "markdownify>=0.13.0",
 ]
 
-[project.scripts]
-serve = "uvicorn backend.main:app --host 0.0.0.0 --port 8000"
-
 [dependency-groups]
 dev = [
     "ruff>=0.15.17",
@@ -48,3 +45,6 @@ dev = [
 [tool.pyright]
 include = ["src", "backend"]
 extraPaths = ["."]
+
+[tool.uv]
+package = false

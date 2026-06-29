@@ -1,5 +1,5 @@
 """
-DocChat — FastAPI Backend
+CarnetLM — FastAPI Backend
 
 Multi-notebook document Q&A with notes, AI writing assist, and export.
 """
@@ -1255,9 +1255,9 @@ async def export_chat(request: ChatExportRequest):
         raise HTTPException(status_code=400, detail="No chat history to export")
 
     if request.format == "md":
-        lines = ["# DocChat — Chat Export\n"]
+        lines = ["# CarnetLM — Chat Export\n"]
         for msg in history:
-            role = "**You**" if msg["role"] == "user" else "**DocChat**"
+            role = "**You**" if msg["role"] == "user" else "**CarnetLM**"
             lines.append(f"### {role}\n")
             lines.append(msg["content"] + "\n")
             if msg.get("sources") and msg["role"] == "assistant":
@@ -1271,7 +1271,7 @@ async def export_chat(request: ChatExportRequest):
     else:
         lines = []
         for msg in history:
-            role = "You" if msg["role"] == "user" else "DocChat"
+            role = "You" if msg["role"] == "user" else "CarnetLM"
             lines.append(f"{role}:")
             lines.append(msg["content"])
             lines.append("")

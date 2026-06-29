@@ -1,1 +1,1 @@
-# DocChat - AI-powered document Q&A
+# CarnetLM - AI-powered document Q&A
