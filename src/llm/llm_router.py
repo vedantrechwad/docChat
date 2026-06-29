@@ -304,6 +304,7 @@ class LLMRouter:
             "POST", f"{self.ollama_base_url}/api/chat", json=payload
         ) as response:
             if response.status_code != 200:
+                response.read()
                 raise RuntimeError(f"Ollama stream error: {response.text}")
             for line in response.iter_lines():
                 if not line:

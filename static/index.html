@@ -11,6 +11,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
     <link rel="stylesheet" href="/static/theme.css?v=6.0">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
     <script src="/static/icons.js?v=7.0"></script>
     <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <script>
@@ -147,7 +150,20 @@
                         <span id="followupText"></span>
                         <button class="followup-close" onclick="clearFollowup()">&times;</button>
                     </div>
+                    
+                    <!-- Chat Image Preview Bar -->
+                    <div class="chat-image-preview-bar" id="chatImagePreviewBar" style="display:none; align-items:center; gap:0.5rem; padding:0.5rem 1.25rem; border-top:1px solid var(--border-subtle); background:rgba(255,255,255,0.02);">
+                        <div style="position:relative; width:45px; height:45px; border-radius:6px; overflow:hidden; border:1px solid var(--border-subtle);">
+                            <img id="chatImagePreviewImg" style="width:100%; height:100%; object-fit:cover;">
+                            <button type="button" onclick="clearChatImage()" style="position:absolute; top:2px; right:2px; background:rgba(0,0,0,0.6); color:#fff; border:none; border-radius:50%; width:16px; height:16px; font-size:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1;">&times;</button>
+                        </div>
+                        <span style="font-size:0.75rem; color:var(--text-secondary); font-family:var(--font-mono);" id="chatImageName">image.png</span>
+                    </div>
+
+                    <input type="file" id="chatImageInput" accept="image/*" style="display:none;" onchange="handleChatImageSelect(event)">
+                    
                     <form class="chat-input-wrapper" onsubmit="sendMessage(event)">
+                        <button type="button" onclick="document.getElementById('chatImageInput').click()" style="background:none; border:none; padding:0 0.5rem; display:inline-flex; align-items:center; justify-content:center; color:var(--outline); cursor:pointer;" title="Upload image for local OCR"><span class="material-symbols-outlined" style="font-size:20px">attach_file</span></button>
                         <input type="text" class="chat-input" id="chatInput" placeholder="Message CarnetLM..." autocomplete="off">
                         <button type="submit" class="send-btn" id="sendBtn"><span class="material-symbols-outlined" style="font-size:18px;font-variation-settings:'FILL' 1">send</span></button>
                     </form>
@@ -525,6 +541,7 @@ const API = '';
 let activeNotebookId = null, notebooks = [], sources = [], chatHistory = [], notes = [], currentNoteId = null, isLoading = false, quill = null, currentSpeech = null, currentAudio = null, ttsAvailable = false, discoverEnabled = false, discoverCandidates = [];
 let followupContext = '', selectedChatText = '', grammarTimer = null, currentSourceId = null, currentSourceData = null, docSaveTimer = null, highlightChunkIndex = null;
 let performanceMode = 'fast', activeIngestJobs = [], healthPollTimer = null, ingestPollTimer = null;
+let selectedChatImageBase64 = null;
 const ONBOARDING_KEY = 'carnetlm_onboarding_dismissed';
 
 function showToast(message, type = 'info') {
@@ -535,6 +552,39 @@ function showToast(message, type = 'info') {
     container.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
     setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 3500);
+}
+
+function renderMath(element) {
+    if (window.renderMathInElement && element) {
+        window.renderMathInElement(element, {
+            delimiters: [
+                {left: "$$", right: "$$", display: true},
+                {left: "$", right: "$", display: false},
+                {left: "\\(", right: "\\)", display: false},
+                {left: "\\[", right: "\\]", display: true}
+            ],
+            throwOnError: false
+        });
+    }
+}
+
+function handleChatImageSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        selectedChatImageBase64 = e.target.result;
+        document.getElementById('chatImagePreviewImg').src = selectedChatImageBase64;
+        document.getElementById('chatImageName').textContent = file.name;
+        document.getElementById('chatImagePreviewBar').style.display = 'flex';
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearChatImage() {
+    selectedChatImageBase64 = null;
+    document.getElementById('chatImageInput').value = '';
+    document.getElementById('chatImagePreviewBar').style.display = 'none';
 }
 
 // API retry wrapper with exponential backoff
@@ -744,13 +794,55 @@ async function appendToNoteAndOpen(noteId, enc) {
 }
 
 async function loadNotebooks() {
-    try { const res = await fetch(`${API}/api/notebooks`); const data = await res.json(); notebooks = data.notebooks || [];
+    try {
+        const res = await fetch(`${API}/api/notebooks`);
+        const data = await res.json();
+        notebooks = data.notebooks || [];
         if (activeNotebookId && !notebooks.some(nb => nb.id === activeNotebookId)) activeNotebookId = null;
         if (!activeNotebookId && notebooks.length) activeNotebookId = notebooks[0].id;
         renderNotebooks();
-        if (activeNotebookId) await Promise.all([loadSources(), loadHistory(), loadNotes(), loadDocument(), updateDiscoverButton(), loadStudyGuide()]);
-        else { sources = []; chatHistory = []; notes = []; renderSources(); renderChat(); renderNotes(); document.getElementById('notesBadge').textContent = '0'; closeNoteEditor(); renderStudyGuideView(null); }
+        
+        if (activeNotebookId) {
+            const activeNb = notebooks.find(n => n.id === activeNotebookId);
+            if (activeNb && activeNb.is_private) {
+                let hash = sessionStorage.getItem(`notebook_pwd_${activeNotebookId}`);
+                if (!hash) {
+                    const pwd = prompt('This notebook is private. Enter password to open:');
+                    if (pwd === null) {
+                        showPrivateNotebookPlaceholder();
+                        return;
+                    }
+                    hash = await sha256(pwd);
+                    // Verify via API
+                    const verifyRes = await fetch(`${API}/api/notebooks/${activeNotebookId}/verify`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password_hash: hash })
+                    });
+                    const verifyData = await verifyRes.json();
+                    if (!verifyData.success) {
+                        alert('Invalid password');
+                        showPrivateNotebookPlaceholder();
+                        return;
+                    }
+                    sessionStorage.setItem(`notebook_pwd_${activeNotebookId}`, hash);
+                }
+            }
+            await Promise.all([loadSources(), loadHistory(), loadNotes(), loadDocument(), updateDiscoverButton(), loadStudyGuide()]);
+        } else {
+            showPrivateNotebookPlaceholder();
+        }
     } catch (e) { console.error(e); }
+}
+
+function showPrivateNotebookPlaceholder() {
+    activeNotebookId = null;
+    renderNotebooks();
+    sources = []; chatHistory = []; notes = [];
+    renderSources(); renderChat(); renderNotes();
+    document.getElementById('notesBadge').textContent = '0';
+    closeNoteEditor();
+    renderStudyGuideView(null);
 }
 async function sha256(message) {
     const msgBuffer = new TextEncoder().encode(message);
@@ -855,11 +947,20 @@ async function deleteNotebook(id) {
     const nb = notebooks.find(n => n.id === id);
     let hash = "";
     if (nb && nb.is_private) {
-        hash = sessionStorage.getItem(`notebook_pwd_${id}`) || "";
-        if (!hash) {
-            const pwd = prompt('This notebook is private. Enter password to delete:');
-            if (pwd === null) return;
-            hash = await sha256(pwd);
+        const pwd = prompt('This notebook is private. Enter password to confirm deletion:');
+        if (pwd === null) return;
+        hash = await sha256(pwd);
+        
+        // Verify password first before deleting
+        const verifyRes = await fetch(`${API}/api/notebooks/${id}/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password_hash: hash })
+        });
+        const verifyData = await verifyRes.json();
+        if (!verifyData.success) {
+            alert('Invalid password. Deletion cancelled.');
+            return;
         }
     }
 
@@ -1115,13 +1216,17 @@ function renderChat() {
     window._citationData = {};
     _citationCounter = 0;
     el.innerHTML = chatHistory.map((msg, i) => {
-        if (msg.role === 'user') return `<div class="msg msg-user"><div class="msg-bubble">${esc(msg.content)}</div></div>`;
+        if (msg.role === 'user') {
+            const imgHtml = msg.image ? `<div style="margin-top:0.5rem;"><img src="${msg.image}" style="max-width:180px; max-height:120px; border-radius:6px; border:1px solid var(--border-subtle); display:block;"></div>` : '';
+            return `<div class="msg msg-user"><div class="msg-bubble">${esc(msg.content)}${imgHtml}</div></div>`;
+        }
         let html = formatResponse(msg.content, msg.sources);
         let srcTags = '';
         if (msg.sources?.length) { const uniq=[...new Map(msg.sources.map(s=>[s.source_file,s])).values()]; srcTags=`<div class="msg-sources">${uniq.map(s=>`<span class="msg-source-tag">${esc(s.source_file)}</span>`).join('')}</div>`; }
         return `<div class="msg msg-assistant"><div class="msg-bubble">${html}${srcTags}</div><div class="msg-actions"><button class="msg-action-btn" onclick="speakText(this,${i})" title="Read aloud"><span class="material-symbols-outlined" style="font-size:14px">volume_up</span> Speak</button><button class="msg-action-btn" onclick="showNoteSelector(event,${i})" title="Save to note"><span class="material-symbols-outlined" style="font-size:14px">bookmark_add</span> Note</button></div></div>`;
     }).join('');
     refreshIcons(el);
+    renderMath(el);
     el.scrollTop = el.scrollHeight;
     renderOnboarding();
 }
@@ -1130,11 +1235,21 @@ async function sendMessage(e) {
     e.preventDefault(); if (!activeNotebookId) { alert('Create a notebook first'); return; }
     const input = document.getElementById('chatInput');
     let query = input.value.trim();
-    if (!query || isLoading) return;
+    if (!query && !selectedChatImageBase64) return;
+    if (isLoading) return;
+    
     let displayQuery = query;
+    const imgBase64 = selectedChatImageBase64;
+    
     if (followupContext) { query = `Regarding this text: "${followupContext}"\n\n${query}`; clearFollowup(); }
-    chatHistory.push({ role: 'user', content: displayQuery, sources: [] });
-    renderChat(); input.value = ''; isLoading = true; document.getElementById('sendBtn').disabled = true;
+    
+    chatHistory.push({ role: 'user', content: displayQuery || 'Analyzed Image', image: imgBase64, sources: [] });
+    renderChat();
+    
+    // Clear image selection
+    clearChatImage();
+    
+    input.value = ''; isLoading = true; document.getElementById('sendBtn').disabled = true;
     const msgs = document.getElementById('chatMessages');
     const streamMsg = document.createElement('div');
     streamMsg.className = 'msg msg-assistant';
@@ -1145,7 +1260,15 @@ async function sendMessage(e) {
     let fullText = '';
     let sourcesUsed = [];
     try {
-        const r = await fetch(`${API}/api/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, notebook_id: activeNotebookId }) });
+        const r = await fetch(`${API}/api/chat/stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                query: query || "Describe the contents of this image",
+                notebook_id: activeNotebookId,
+                image_base64: imgBase64
+            })
+        });
         if (!r.ok) throw new Error('Stream failed');
         const reader = r.body.getReader();
         const decoder = new TextDecoder();
@@ -1175,6 +1298,7 @@ async function sendMessage(e) {
                 } else if (eventType === 'meta' || eventType === 'done') {
                     if (data.sources_used) sourcesUsed = data.sources_used;
                     bubble.innerHTML = formatResponse(fullText, sourcesUsed) + '<span class="stream-cursor"></span>';
+                    renderMath(bubble);
                 } else if (eventType === 'error') {
                     throw new Error(data.message || 'Stream error');
                 }
@@ -1217,6 +1341,7 @@ function renderNotes() {
     const el=document.getElementById('notesList');
     if(!notes.length){el.innerHTML='<div style="text-align:center;padding:3rem;color:var(--outline);font-size:0.8125rem;font-family:var(--font-body)">No notes yet</div>';return;}
     el.innerHTML=notes.map(n=>`<div class="note-card" onclick="openNote(${n.id})"><div class="note-card-title">${esc(n.title)}</div><div class="note-card-preview">${esc(n.preview||'')}</div><div class="note-card-meta">${new Date(n.updated_at).toLocaleDateString()}</div></div>`).join('');
+    renderMath(el);
 }
 async function createNote() { const id=await fetch(`${API}/api/notebooks/${activeNotebookId}/notes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Untitled Note',content:''})}).then(r=>r.json()).then(d=>d.id); await loadNotes(); openNote(id); }
 async function openNote(id) { const r=await fetch(`${API}/api/notes/${id}`);const note=await r.json(); currentNoteId=id; document.getElementById('noteTitleInput').value=note.title; document.getElementById('noteContentArea').value=note.content||''; document.getElementById('notesListView').style.display='none'; document.getElementById('noteEditorView').classList.add('active'); updateNoteIndexBtn(note.indexed_in_rag); }
@@ -1841,6 +1966,7 @@ function renderStudyGuideView(data) {
     
     // Parse markdown summary and inline citations with hover support
     contentEl.innerHTML = formatResponse(data.summary, data.sources_used || []);
+    renderMath(contentEl);
 
     // Format unique cited sources list for references drawer
     const citedSources = data.sources_used || [];

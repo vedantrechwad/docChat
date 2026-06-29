@@ -142,11 +142,29 @@ def _apply_notebook_chunking(notebook_id: int, preset_override: Optional[str] = 
     return chunking
 
 
+def _process_image_base64_in_request(request: "ChatRequest"):
+    if request.image_base64:
+        try:
+            import base64
+            from src.document_processing.ocr_service import extract_text_from_image
+            header, encoded = request.image_base64.split(",", 1) if "," in request.image_base64 else ("", request.image_base64)
+            img_bytes = base64.b64decode(encoded)
+            ocr_text = extract_text_from_image(img_bytes)
+            if ocr_text:
+                request.query = f"[Image OCR Context]:\n{ocr_text}\n\n[Question/Task]:\n{request.query}"
+                logger.info(f"Chat Image OCR successfully extracted {len(ocr_text)} characters.")
+            else:
+                logger.warning("Chat Image OCR returned empty text.")
+        except Exception as e:
+            logger.error(f"Failed to process chat image base64 OCR: {e}")
+
+
 # ─── Pydantic Models ───────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
     query: str
     notebook_id: int = 1
+    image_base64: Optional[str] = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -900,6 +918,8 @@ async def chat(request: ChatRequest):
     if not _rag_generator:
         raise HTTPException(status_code=503, detail="Not initialized")
 
+    _process_image_base64_in_request(request)
+
     conv_context = _memory.get_conversation_context(
         notebook_id=request.notebook_id, max_turns=_conversation_turns(),
     )
@@ -924,6 +944,8 @@ async def chat_stream(request: ChatRequest):
     """Stream RAG response via Server-Sent Events."""
     if not _rag_generator or not _memory:
         raise HTTPException(status_code=503, detail="Not initialized")
+
+    _process_image_base64_in_request(request)
 
     # Auto-discover: fetch relevant websites if enabled
     discover_settings = _memory.get_discover_settings(request.notebook_id)
